@@ -215,6 +215,7 @@ export default function Report() {
   const [phase, setPhase] = useState(0)
   const [showReport, setShowReport] = useState(false)
   const [playing, setPlaying] = useState(false)
+  const [feedbackActive, setFeedbackActive] = useState(false)
   const phaseRef = useRef(0)
 
   function startPlayback() {
@@ -314,14 +315,18 @@ export default function Report() {
           </button>
           {phase >= 3 && (
             <button
+              onClick={() => { setFeedbackActive(true); setTimeout(() => setFeedbackActive(false), 2000) }}
               style={{
                 flex: 1, padding: '10px',
-                background: '#22c55e22', border: '1px solid #22c55e',
+                background: feedbackActive ? '#22c55e33' : '#22c55e22',
+                border: `1px solid ${feedbackActive ? '#22c55e' : '#22c55e66'}`,
                 color: '#22c55e', borderRadius: '3px', cursor: 'pointer',
                 fontSize: '11px', letterSpacing: '0.08em', fontFamily: 'var(--font-mono)',
+                transition: 'all 0.3s',
+                boxShadow: feedbackActive ? '0 0 20px #22c55e44' : 'none',
               }}
             >
-              ↻ 验证结果反哺 Agent
+              {feedbackActive ? '↻ 已发送至 Agent · 验证中...' : '↻ 验证结果反哺 Agent'}
             </button>
           )}
         </div>
@@ -333,8 +338,12 @@ export default function Report() {
         background: '#040810', borderLeft: '1px solid #1a2d45',
         overflowY: 'auto', padding: '16px',
       }}>
-        <div style={{ fontSize: '10px', color: '#64748b', letterSpacing: '0.1em', marginBottom: '12px' }}>
+        <div style={{ fontSize: '10px', color: '#64748b', letterSpacing: '0.1em', marginBottom: '6px' }}>
           AUTO REPORT · 自动生成报告
+        </div>
+        <div style={{ fontSize: '9px', color: '#1e3a5f', marginBottom: '4px', lineHeight: 1.5 }}>
+          置信度由信实链加权算法生成<br/>
+          <span style={{ color: '#22c55e' }}>✓ 卫星验证</span> 节点权重×1.4
         </div>
         <div style={{ fontSize: '9px', color: '#334155', marginBottom: '16px' }}>{REPORT.generatedAt}</div>
 
@@ -356,7 +365,22 @@ export default function Report() {
               <div style={{ height: '3px', background: '#0d1a2e', borderRadius: '2px' }}>
                 <div style={{ width: `${s.confidence * 100}%`, height: '100%', background: confColor(s.confidence), borderRadius: '2px' }} />
               </div>
-              {s.verified && <div style={{ fontSize: '9px', color: '#22c55e', marginTop: '3px' }}>✓ 卫星验证</div>}
+              {s.verified && (
+                <div style={{ display: 'flex', gap: '6px', marginTop: '3px' }}>
+                  <span style={{ fontSize: '9px', color: '#22c55e' }}>✓ 卫星验证</span>
+                  <span style={{
+                    fontSize: '9px', padding: '1px 5px', borderRadius: '2px',
+                    background: s.sourceType === 'satellite' ? '#22c55e15' : s.sourceType === 'chain' ? '#0ea5e915' : '#64748b15',
+                    color:      s.sourceType === 'satellite' ? '#22c55e'   : s.sourceType === 'chain' ? '#0ea5e9'   : '#64748b',
+                    border:     `1px solid ${s.sourceType === 'satellite' ? '#22c55e33' : s.sourceType === 'chain' ? '#0ea5e933' : '#64748b33'}`,
+                  }}>
+                    {s.sourceType === 'satellite' ? '卫星影像' : s.sourceType === 'chain' ? '信实链节点' : 'OSINT'}
+                  </span>
+                </div>
+              )}
+              {!s.verified && (
+                <div style={{ fontSize: '9px', color: '#334155', marginTop: '3px' }}>◌ 未验证 · OSINT</div>
+              )}
             </div>
           ))}
         </div>
