@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { SITES, EVENTS } from '../../data/mockData'
+import { SITES, EVENTS, NEWS_MARKERS } from '../../data/mockData'
 
 // ── 状态颜色 ─────────────────────────────────────────────────
 function statusColor(status) {
@@ -316,11 +316,104 @@ function RelatedEvents({ siteId, onNavigate }) {
   )
 }
 
+// ── 新闻弹窗组件 ────────────────────────────────────────────────
+function NewsModal({ news, onClose }) {
+  if (!news) return null
+  
+  const typeColor = {
+    military: '#ef4444',
+    verified: '#22c55e',
+    news: '#f59e0b',
+    infrastructure: '#0ea5e9',
+  }[news.type] || '#94a3b8'
+  
+  const typeLabel = {
+    military: '军事动态',
+    verified: '已验证',
+    news: '新闻报道',
+    infrastructure: '基础设施',
+  }[news.type] || '信息'
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0, left: 0, right: 0, bottom: 0,
+      background: 'rgba(0,0,0,0.6)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex: 999,
+      backdropFilter: 'blur(4px)',
+    }} onClick={onClose}>
+      <div style={{
+        background: '#040810',
+        border: '1px solid #1a2d45',
+        borderRadius: '6px',
+        padding: '24px',
+        maxWidth: '500px',
+        maxHeight: '70vh',
+        overflowY: 'auto',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.8)',
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+          <div>
+            <div style={{
+              display: 'inline-block',
+              padding: '4px 10px',
+              borderRadius: '3px',
+              background: `${typeColor}22`,
+              border: `1px solid ${typeColor}44`,
+              color: typeColor,
+              fontSize: '9px',
+              fontWeight: 700,
+              marginBottom: '8px',
+              letterSpacing: '0.08em',
+            }}>
+              {typeLabel}
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: '#e2e8f0', lineHeight: 1.4 }}>
+              {news.title}
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            background: 'transparent',
+            border: 'none',
+            color: '#64748b',
+            fontSize: '20px',
+            cursor: 'pointer',
+            padding: '0',
+            width: '24px',
+            height: '24px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            ✕
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', fontSize: '9px', color: '#64748b', borderBottom: '1px solid #0d1a2e', paddingBottom: '12px' }}>
+          <span>📅 {news.date}</span>
+          <span>📡 {news.source}</span>
+        </div>
+
+        <div style={{ fontSize: '11px', color: '#c7d2e0', lineHeight: 1.6 }}>
+          {news.content}
+        </div>
+
+        <div style={{ marginTop: '16px', padding: '12px', background: '#0d1a2e', borderRadius: '3px', fontSize: '9px', color: '#94a3b8' }}>
+          📍 {news.lat.toFixed(2)}° N, {news.lng.toFixed(2)}° E
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── 地图组件 ─────────────────────────────────────────────────
 function SiteMap({ sites, selectedId, onSelect }) {
   const mapRef = useRef(null)
   const mapInstance = useRef(null)
   const markersRef = useRef({})
+  const newsMarkersRef = useRef({})
+  const [selectedNews, setSelectedNews] = useState(null)
 
   useEffect(() => {
     if (mapInstance.current) return
@@ -335,6 +428,7 @@ function SiteMap({ sites, selectedId, onSelect }) {
       }).addTo(map)
       L.control.zoom({ position: 'bottomright' }).addTo(map)
 
+      // 添加基地标记
       sites.forEach(site => {
         const color = statusColor(site.status)
         const icon = L.divIcon({
@@ -357,6 +451,36 @@ function SiteMap({ sites, selectedId, onSelect }) {
           .on('click', () => onSelect(site.id))
         markersRef.current[site.id] = marker
       })
+
+      // 添加新闻标记
+      NEWS_MARKERS.forEach(newsItem => {
+        const typeColor = {
+          military: '#ef4444',
+          verified: '#22c55e',
+          news: '#f59e0b',
+          infrastructure: '#0ea5e9',
+        }[newsItem.type] || '#94a3b8'
+        
+        const icon = L.divIcon({
+          className: '',
+          html: `<div style="
+            width:20px;height:20px;
+            border-radius:50%;
+            background:${typeColor}22;
+            border:2px solid ${typeColor};
+            display:flex;align-items:center;justify-content:center;
+            font-size:10px;
+            box-shadow:0 0 8px ${typeColor}88;
+            cursor:pointer;
+          ">📰</div>`,
+          iconSize: [20, 20], iconAnchor: [10, 10]
+        })
+        const marker = L.marker([newsItem.lat, newsItem.lng], { icon })
+          .addTo(map)
+          .on('click', () => setSelectedNews(newsItem))
+        newsMarkersRef.current[newsItem.id] = marker
+      })
+
       mapInstance.current = map
     })
   }, [])
@@ -367,7 +491,14 @@ function SiteMap({ sites, selectedId, onSelect }) {
     if (site) mapInstance.current.flyTo([site.lat, site.lng], 7, { duration: 1 })
   }, [selectedId])
 
-  return <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
+  return (
+    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+      <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
+
+      {/* 新闻弹窗 */}
+      <NewsModal news={selectedNews} onClose={() => setSelectedNews(null)} />
+    </div>
+  )
 }
 
 // ── 主组件 ───────────────────────────────────────────────────
