@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { REPORT } from "../../data/mockData";
+import { saveAs } from "file-saver";
+import { Document, Packer, Paragraph, TextRun } from "docx";
 import {
   Viewer,
   Ion,
@@ -22,17 +24,32 @@ function confColor(c) {
 }
 
 // ── 流式文字效果 ─────────────────────────────────────────────
-function StreamText({ text, speed = 18 }) {
+function StreamText({ text, speed = 18, onComplete }) {
   const [displayed, setDisplayed] = useState("");
   const idx = useRef(0);
+  const completedRef = useRef(false);
+  const onCompleteRef = useRef(onComplete);
+
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
 
   useEffect(() => {
     idx.current = 0;
+    completedRef.current = false;
     setDisplayed("");
+
     const timer = setInterval(() => {
       if (idx.current < text.length) {
-        setDisplayed(text.slice(0, idx.current + 1));
+        const next = text.slice(0, idx.current + 1);
+        setDisplayed(next);
         idx.current++;
+
+        if (idx.current >= text.length && !completedRef.current) {
+          completedRef.current = true;
+          clearInterval(timer);
+          onCompleteRef.current?.();
+        }
       } else {
         clearInterval(timer);
       }
@@ -855,11 +872,16 @@ export default function Report() {
   const [feedbackActive, setFeedbackActive] = useState(false);
   const [viewMode, setViewMode] = useState("3d");
   const [expanded, setExpanded] = useState(false);
+  const [reportReadyToExport, setReportReadyToExport] = useState(false);
   const timeoutRefs = useRef([]);
 
   const clearPlaybackTimers = useCallback(() => {
     timeoutRefs.current.forEach(clearTimeout);
     timeoutRefs.current = [];
+  }, []);
+
+  const handleReportComplete = useCallback(() => {
+    setReportReadyToExport(true);
   }, []);
 
   const startPlayback = useCallback(() => {
@@ -868,6 +890,7 @@ export default function Report() {
     setPlaying(true);
     setPhase(0);
     setShowReport(false);
+    setReportReadyToExport(false);
 
     timeoutRefs.current.push(
       setTimeout(() => setPhase(1), 600),
@@ -890,6 +913,79 @@ export default function Report() {
     { id: 2, label: "打击确认", desc: "卫星验证目标受损" },
     { id: 3, label: "预测输出", desc: "明日05:30预测打击" },
   ];
+
+  const handleExportWord = useCallback(async () => {
+    try {
+      const summaryText = REPORT.summary || "";
+
+      const paragraphs = summaryText
+        .split("\n")
+        .filter((line) => line.trim() !== "")
+        .map(
+          (line) =>
+            new Paragraph({
+              spacing: {
+                after: 180,
+                line: 360,
+              },
+              children: [
+                new TextRun({
+                  text: line,
+                  size: 24,
+                }),
+              ],
+            }),
+        );
+
+      const doc = new Document({
+        creator: "OpenAI",
+        title: REPORT.title || "分析摘要报告",
+        description: "智能预测分析摘要导出文档",
+        sections: [
+          {
+            children: [
+              new Paragraph({
+                spacing: { after: 240 },
+                children: [
+                  new TextRun({
+                    text: REPORT.title || "智能预测分析报告",
+                    bold: true,
+                    size: 32,
+                  }),
+                ],
+              }),
+              new Paragraph({
+                spacing: { after: 160 },
+                children: [
+                  new TextRun({
+                    text: `生成时间：${REPORT.generatedAt || ""}`,
+                    size: 20,
+                    color: "666666",
+                  }),
+                ],
+              }),
+              new Paragraph({
+                spacing: { after: 220 },
+                children: [
+                  new TextRun({
+                    text: "分析摘要",
+                    bold: true,
+                    size: 26,
+                  }),
+                ],
+              }),
+              ...paragraphs,
+            ],
+          },
+        ],
+      });
+
+      const blob = await Packer.toBlob(doc);
+      saveAs(blob, `分析摘要报告_${Date.now()}.docx`);
+    } catch (error) {
+      console.error("导出 Word 失败:", error);
+    }
+  }, []);
 
   return (
     <>
@@ -1277,14 +1373,42 @@ export default function Report() {
           >
             <div
               style={{
-                fontSize: "9px",
-                color: "#64748b",
-                letterSpacing: "0.1em",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
                 marginBottom: "10px",
               }}
             >
-              分析摘要
+              <div
+                style={{
+                  fontSize: "9px",
+                  color: "#64748b",
+                  letterSpacing: "0.1em",
+                }}
+              >
+                分析摘要
+              </div>
+
+              {reportReadyToExport && (
+                <button
+                  onClick={handleExportWord}
+                  style={{
+                    padding: "5px 10px",
+                    background: "#0ea5e922",
+                    border: "1px solid #0ea5e9",
+                    color: "#0ea5e9",
+                    borderRadius: "3px",
+                    cursor: "pointer",
+                    fontSize: "9px",
+                    fontFamily: "var(--font-mono)",
+                    letterSpacing: "0.06em",
+                  }}
+                >
+                  导出Word
+                </button>
+              )}
             </div>
+
             <div
               style={{
                 fontSize: "11px",
@@ -1294,7 +1418,11 @@ export default function Report() {
               }}
             >
               {showReport ? (
-                <StreamText text={REPORT.summary} speed={12} />
+                <StreamText
+                  text={REPORT.summary}
+                  speed={12}
+                  onComplete={handleReportComplete}
+                />
               ) : (
                 <span style={{ color: "#334155" }}>
                   等待演示启动后自动生成报告...
