@@ -70,8 +70,8 @@ export const SITES = [
     ],
     status: 'operational',
     strategicValue: 'S',
-    aci: 88,
-    dci: 75,
+    aci: 120,
+    dci: 80,
     dailyData: {
       dates: ['10/28','10/29','10/30','10/31','11/01','11/02','11/03'],
       aci:   [82, 83, 85, 86, 87, 88, 88],
@@ -100,8 +100,8 @@ export const SITES = [
     ],
     status: 'operational',
     strategicValue: 'B',
-    aci: 40,
-    dci: 30,
+    aci: 57,
+    dci: 44,
     dailyData: {
       dates: ['10/28','10/29','10/30','10/31','11/01','11/02','11/03'],
       aci:   [38, 39, 40, 40, 40, 40, 40],
@@ -130,8 +130,8 @@ export const SITES = [
     ],
     status: 'destroyed',
     strategicValue: 'A',
-    aci: 18,
-    dci: 15,
+    aci: 15,
+    dci: 13,
     dailyData: {
       dates: ['10/28','10/29','10/30','10/31','11/01','11/02','11/03'],
       aci:   [75, 76, 77, 77, 75, 20, 18],
@@ -163,8 +163,8 @@ export const SITES = [
     ],
     status: 'operational',
     strategicValue: 'S',
-    aci: 92,
-    dci: 85,
+    aci: 102,
+    dci: 72,
     dailyData: {
       dates: ['10/28','10/29','10/30','10/31','11/01','11/02','11/03'],
       aci:   [80, 82, 85, 88, 92, 92, 92],
@@ -191,8 +191,8 @@ export const SITES = [
     ],
     status: 'damaged',
     strategicValue: 'A',
-    aci: 55,
-    dci: 70,
+    aci: 71,
+    dci: 49,
     dailyData: {
       dates: ['10/28','10/29','10/30','10/31','11/01','11/02','11/03'],
       aci:   [50, 51, 52, 53, 55, 55, 55],
@@ -223,8 +223,8 @@ export const SITES = [
     ],
     status: 'damaged',
     strategicValue: 'A',
-    aci: 62,
-    dci: 58,
+    aci: 59,
+    dci: 48,
     dailyData: {
       dates: ['10/15','10/20','10/25','10/28','10/30','11/01','11/03'],
       aci:   [50, 53, 55, 58, 60, 61, 62],
@@ -284,6 +284,98 @@ export function chainScore(chainId) {
   const verifiedBonus = verified.length / nodes.length * 0.1
   return Math.min(1, baseAvg + verifiedBonus)
 }
+
+// ── 计算基地攻击力和防御力指数 ────────────────────────────────
+function calculateCombatIndices(site) {
+  // 装备攻击力映射
+  const attackEquipmentMap = {
+    'F-16 Fighting Falcon': 10,
+    'C-130 Hercules': 5,
+    'MQ-9 Reaper': 15,
+    'RC-135 侦察机': 20,
+    'CVN-77 航母': 50,
+    '提康德罗加级巡洋舰': 30,
+    '阿利伯克级驱逐舰': 25,
+    '反舰导弹发射车': 15,
+    '重型工程机械': 2, // 建设装备，攻击力较低
+  };
+
+  // 装备防御力映射
+  const defenseEquipmentMap = {
+    'SAM 阵地 (Patriot)': 20,
+    '雷达站': 10,
+    '新型雷达阵地': 15,
+  };
+
+  // 计算装备攻击力
+  let attackFromEquipment = 0;
+  site.equipment.forEach(eq => {
+    const attackValue = attackEquipmentMap[eq.name] || 0;
+    attackFromEquipment += attackValue * eq.count;
+  });
+
+  // 计算装备防御力
+  let defenseFromEquipment = 0;
+  site.equipment.forEach(eq => {
+    const defenseValue = defenseEquipmentMap[eq.name] || 0;
+    defenseFromEquipment += defenseValue * eq.count;
+  });
+
+  // 设施损坏对防御力的影响
+  let facilityDamagePenalty = 0;
+  site.facilities.forEach(fac => {
+    facilityDamagePenalty += fac.damage * 0.5; // 每1%损坏减少0.5防御力
+  });
+
+  // 状态乘数
+  const statusMultiplier = {
+    'operational': 1.0,
+    'damaged': 0.7,
+    'destroyed': 0.3,
+  }[site.status] || 1.0;
+
+  // 战略价值加成
+  const strategicBonus = {
+    'S': 20,
+    'A': 10,
+    'B': 5,
+  }[site.strategicValue] || 0;
+
+  // 计算最终指数
+  const aci = Math.round((attackFromEquipment + strategicBonus) * statusMultiplier);
+  const dci = Math.round((defenseFromEquipment + strategicBonus - facilityDamagePenalty) * statusMultiplier);
+
+  return { aci: Math.max(0, aci), dci: Math.max(0, dci) };
+}
+
+// 更新基地的aci和dci
+SITES.forEach(site => {
+  const { aci, dci } = calculateCombatIndices(site);
+  site.aci = aci;
+  site.dci = dci;
+});
+
+// 归一化aci和dci到0-100范围
+const aciValues = SITES.map(site => site.aci);
+const dciValues = SITES.map(site => site.dci);
+
+const maxAci = Math.max(...aciValues);
+const minAci = Math.min(...aciValues);
+const maxDci = Math.max(...dciValues);
+const minDci = Math.min(...dciValues);
+
+SITES.forEach(site => {
+  if (maxAci !== minAci) {
+    site.aci = Math.round(((site.aci - minAci) / (maxAci - minAci)) * 100);
+  } else {
+    site.aci = 50; // 如果所有值相同，设为50
+  }
+  if (maxDci !== minDci) {
+    site.dci = Math.round(((site.dci - minDci) / (maxDci - minDci)) * 100);
+  } else {
+    site.dci = 50; // 如果所有值相同，设为50
+  }
+});
 
 export const CHAINS = [
   { id: 'A', name: '空袭行动链', description: '塔尔阿夫尔F-16出动 → 胡拉玛设施打击验证' },
