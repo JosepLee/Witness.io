@@ -12,7 +12,6 @@ import {
   EllipsoidTerrainProvider,
   createWorldTerrainAsync,
   createOsmBuildingsAsync,
-  createGooglePhotorealistic3DTileset,
 } from "cesium";
 
 // ── 置信度颜色 ────────────────────────────────────────────────
@@ -75,7 +74,36 @@ function StreamText({ text, speed = 18, onComplete }) {
   );
 }
 
-// ── 战术地图演示（支持缩放/拖拽/2D-3D）───────────────────────
+function FadeBlock({ show, delay = 0, children }) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    let timer;
+
+    if (show) {
+      timer = setTimeout(() => {
+        setVisible(true);
+      }, delay);
+    } else {
+      setVisible(false);
+    }
+
+    return () => clearTimeout(timer);
+  }, [show, delay]);
+
+  return (
+    <div
+      style={{
+        opacity: visible ? 1 : 0,
+        transform: visible ? "translateY(0px)" : "translateY(8px)",
+        transition: "opacity 0.45s ease, transform 0.45s ease",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 function TacticalDemo({ phase, viewMode = "3d", viewerId = "main" }) {
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
@@ -873,15 +901,13 @@ export default function Report() {
   const [viewMode, setViewMode] = useState("3d");
   const [expanded, setExpanded] = useState(false);
   const [reportReadyToExport, setReportReadyToExport] = useState(false);
+  const [feedbackApplied, setFeedbackApplied] = useState(false);
+  const [highlightBlock, setHighlightBlock] = useState("");
   const timeoutRefs = useRef([]);
 
   const clearPlaybackTimers = useCallback(() => {
     timeoutRefs.current.forEach(clearTimeout);
     timeoutRefs.current = [];
-  }, []);
-
-  const handleReportComplete = useCallback(() => {
-    setReportReadyToExport(true);
   }, []);
 
   const startPlayback = useCallback(() => {
@@ -891,6 +917,8 @@ export default function Report() {
     setPhase(0);
     setShowReport(false);
     setReportReadyToExport(false);
+    setFeedbackApplied(false);
+    setHighlightBlock("");
 
     timeoutRefs.current.push(
       setTimeout(() => setPhase(1), 600),
@@ -907,12 +935,9 @@ export default function Report() {
     return () => clearPlaybackTimers();
   }, [clearPlaybackTimers]);
 
-  const phaseLabels = [
-    { id: 0, label: "待机", desc: "等待演示启动" },
-    { id: 1, label: "飞机出击", desc: "F-16×4 06:12离场" },
-    { id: 2, label: "打击确认", desc: "卫星验证目标受损" },
-    { id: 3, label: "预测输出", desc: "明日05:30预测打击" },
-  ];
+  const handleReportComplete = useCallback(() => {
+    setReportReadyToExport(true);
+  }, []);
 
   const handleExportWord = useCallback(async () => {
     try {
@@ -987,6 +1012,52 @@ export default function Report() {
     }
   }, []);
 
+  const handleFeedbackApply = useCallback(() => {
+    if (feedbackActive) return;
+
+    setFeedbackActive(true);
+
+    setTimeout(() => {
+      setFeedbackApplied(true);
+      setFeedbackActive(false);
+
+      // 依次高亮更新块
+      setHighlightBlock("reasoning");
+      setTimeout(() => setHighlightBlock("breakdown"), 400);
+      setTimeout(() => setHighlightBlock("predictions"), 800);
+      setTimeout(() => setHighlightBlock("candidates"), 1200);
+      setTimeout(() => setHighlightBlock("suggestions"), 1600);
+      setTimeout(() => setHighlightBlock(""), 2200);
+    }, 2500);
+  }, [feedbackActive]);
+
+  const phaseLabels = [
+    { id: 0, label: "待机", desc: "等待演示启动" },
+    { id: 1, label: "飞机出击", desc: "F-16×4 06:12离场" },
+    { id: 2, label: "打击确认", desc: "卫星验证目标受损" },
+    { id: 3, label: "预测输出", desc: "明日05:30预测打击" },
+  ];
+
+  const displayData = feedbackApplied
+    ? {
+        confidence: REPORT.feedbackResult.confidence,
+        predictions: REPORT.feedbackResult.predictions,
+        agentReasoning: REPORT.feedbackResult.agentReasoning,
+        confidenceBreakdown: REPORT.feedbackResult.confidenceBreakdown,
+        predictionTimeline: REPORT.feedbackResult.predictionTimeline,
+        targetCandidates: REPORT.feedbackResult.targetCandidates,
+        agentSuggestions: REPORT.feedbackResult.agentSuggestions,
+      }
+    : {
+        confidence: REPORT.confidence,
+        predictions: REPORT.predictions,
+        agentReasoning: REPORT.agentReasoning,
+        confidenceBreakdown: REPORT.confidenceBreakdown,
+        predictionTimeline: REPORT.predictionTimeline,
+        targetCandidates: REPORT.targetCandidates,
+        agentSuggestions: REPORT.agentSuggestions,
+      };
+
   return (
     <>
       <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
@@ -1000,7 +1071,6 @@ export default function Report() {
             overflow: "hidden",
           }}
         >
-          {/* 标题 */}
           <div
             style={{
               marginBottom: "12px",
@@ -1037,12 +1107,11 @@ export default function Report() {
                   color: "#22c55e",
                 }}
               >
-                整体置信度 {(REPORT.confidence * 100).toFixed(0)}%
+                整体置信度 {(displayData.confidence * 100).toFixed(0)}%
               </div>
             </div>
           </div>
 
-          {/* 阶段指示器 */}
           <div style={{ display: "flex", gap: "6px", marginBottom: "12px" }}>
             {phaseLabels.map((p) => (
               <div
@@ -1088,7 +1157,6 @@ export default function Report() {
             ))}
           </div>
 
-          {/* 地图演示区域 */}
           <div
             style={{
               flex: 1,
@@ -1106,7 +1174,6 @@ export default function Report() {
               viewerId="inline-viewer"
             />
 
-            {/* 左上角状态标签 */}
             {phase >= 1 && (
               <div
                 style={{
@@ -1127,21 +1194,22 @@ export default function Report() {
               </div>
             )}
 
-            {/* 右上角工具栏 */}
             <div
               style={{
                 position: "absolute",
-                top: "10px",
+                top: "112px",
                 right: "10px",
                 display: "flex",
+                flexDirection: "column",
                 gap: "8px",
+                zIndex: 20,
               }}
             >
               <button
                 onClick={() => setViewMode((v) => (v === "2d" ? "3d" : "2d"))}
                 style={toolBtnStyle(viewMode === "3d")}
               >
-                {viewMode === "3d" ? "3D视角" : "2D视角"}
+                {viewMode === "3d" ? "切换到2D" : "切换到3D"}
               </button>
 
               <button
@@ -1153,7 +1221,6 @@ export default function Report() {
             </div>
           </div>
 
-          {/* 控制按钮 */}
           <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
             <button
               onClick={startPlayback}
@@ -1175,28 +1242,35 @@ export default function Report() {
 
             {phase >= 3 && (
               <button
-                onClick={() => {
-                  setFeedbackActive(true);
-                  setTimeout(() => setFeedbackActive(false), 2000);
-                }}
+                onClick={handleFeedbackApply}
                 style={{
                   flex: 1,
                   padding: "10px",
-                  background: feedbackActive ? "#22c55e33" : "#22c55e22",
-                  border: `1px solid ${feedbackActive ? "#22c55e" : "#22c55e66"}`,
-                  color: "#22c55e",
+                  background: feedbackActive
+                    ? "#22c55e33"
+                    : feedbackApplied
+                      ? "#0ea5e922"
+                      : "#22c55e22",
+                  border: `1px solid ${feedbackActive ? "#22c55e" : feedbackApplied ? "#0ea5e9" : "#22c55e66"}`,
+                  color: feedbackApplied ? "#0ea5e9" : "#22c55e",
                   borderRadius: "3px",
                   cursor: "pointer",
                   fontSize: "11px",
                   letterSpacing: "0.08em",
                   fontFamily: "var(--font-mono)",
                   transition: "all 0.3s",
-                  boxShadow: feedbackActive ? "0 0 20px #22c55e44" : "none",
+                  boxShadow: feedbackActive
+                    ? "0 0 20px #22c55e44"
+                    : feedbackApplied
+                      ? "0 0 18px #0ea5e933"
+                      : "none",
                 }}
               >
                 {feedbackActive
                   ? "↻ 已发送至 Agent · 验证中..."
-                  : "↻ 验证结果反哺 Agent"}
+                  : feedbackApplied
+                    ? "✓ 验证结果已回流 Agent"
+                    : "↻ 验证结果反哺 Agent"}
               </button>
             )}
           </div>
@@ -1361,7 +1435,7 @@ export default function Report() {
             ))}
           </div>
 
-          {/* 报告正文 */}
+          {/* 分析摘要 + Agent 信息 */}
           <div
             style={{
               background: "#080f1e",
@@ -1409,12 +1483,66 @@ export default function Report() {
               )}
             </div>
 
+            <FadeBlock show={showReport} delay={150}>
+              <div
+                style={{
+                  background: "#040810",
+                  border: "1px solid #1a2d45",
+                  borderRadius: "4px",
+                  padding: "10px",
+                  marginBottom: "12px",
+                  ...getHighlightStyle(highlightBlock === 'reasoning'),
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "9px",
+                    color: "#64748b",
+                    letterSpacing: "0.1em",
+                    marginBottom: "8px",
+                  }}
+                >
+                  AGENT REASONING · 推理卡片
+                </div>
+
+                {displayData.agentReasoning.map((item, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "10px",
+                      padding: "6px 0",
+                      borderBottom:
+                        idx !== REPORT.agentReasoning.length - 1
+                          ? "1px solid #101a2b"
+                          : "none",
+                    }}
+                  >
+                    <span style={{ fontSize: "10px", color: "#64748b" }}>
+                      {item.label}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: "10px",
+                        color: item.color,
+                        textAlign: "right",
+                      }}
+                    >
+                      {item.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </FadeBlock>
+
             <div
               style={{
                 fontSize: "11px",
                 color: "#94a3b8",
                 lineHeight: 1.8,
                 whiteSpace: "pre-line",
+                marginBottom: showReport ? "12px" : 0,
               }}
             >
               {showReport ? (
@@ -1429,9 +1557,82 @@ export default function Report() {
                 </span>
               )}
             </div>
+
+            <FadeBlock show={showReport} delay={900}>
+              <div
+                style={{
+                  background: "#040810",
+                  border: "1px solid #1a2d45",
+                  borderRadius: "4px",
+                  padding: "10px",
+                  ...getHighlightStyle(highlightBlock === 'breakdown'),
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "9px",
+                    color: "#64748b",
+                    letterSpacing: "0.1em",
+                    marginBottom: "8px",
+                  }}
+                >
+                  CONFIDENCE BREAKDOWN · 置信度来源
+                </div>
+
+                {displayData.confidenceBreakdown.map((item, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      marginBottom:
+                        idx !== REPORT.confidenceBreakdown.length - 1
+                          ? "8px"
+                          : 0,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        marginBottom: "4px",
+                      }}
+                    >
+                      <span style={{ fontSize: "10px", color: "#94a3b8" }}>
+                        {item.label}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          color: item.color,
+                          fontWeight: 700,
+                        }}
+                      >
+                        +{item.score.toFixed(2)}
+                      </span>
+                    </div>
+
+                    <div
+                      style={{
+                        height: "3px",
+                        background: "#0d1a2e",
+                        borderRadius: "2px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: `${Math.min(item.score / 0.35, 1) * 100}%`,
+                          height: "100%",
+                          background: item.color,
+                          borderRadius: "2px",
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </FadeBlock>
           </div>
 
-          {/* 预测提报 */}
+          {/* 预测提报增强区 */}
           {phase >= 3 && (
             <div
               style={{
@@ -1439,6 +1640,7 @@ export default function Report() {
                 border: "1px solid #8b5cf6",
                 borderRadius: "4px",
                 padding: "14px",
+                ...getHighlightStyle(highlightBlock === 'predictions'),
               }}
             >
               <div
@@ -1451,8 +1653,19 @@ export default function Report() {
               >
                 AUTO-ALERT · 自动预测提报
               </div>
-              {REPORT.predictions.map((p, i) => (
-                <div key={i} style={{ marginBottom: "8px" }}>
+
+              {displayData.predictions.map((p, i) => (
+                <div
+                  key={i}
+                  style={{
+                    marginBottom: "8px",
+                    paddingBottom: "8px",
+                    borderBottom:
+                      i !== REPORT.predictions.length - 1
+                        ? "1px solid #2b1f43"
+                        : "none",
+                  }}
+                >
                   <div
                     style={{
                       fontSize: "10px",
@@ -1478,18 +1691,200 @@ export default function Report() {
                   </div>
                 </div>
               ))}
-              <div
-                style={{
-                  marginTop: "10px",
-                  padding: "8px",
-                  background: "#040810",
-                  borderRadius: "3px",
-                  fontSize: "10px",
-                  color: "#64748b",
-                }}
-              >
-                系统将在预测时间前2小时自动触发卫星拍摄任务，验证结果将实时更新本报告。
-              </div>
+
+              <FadeBlock show={phase >= 3} delay={200}>
+                <div
+                  style={{
+                    marginTop: "12px",
+                    background: "#040810",
+                    border: "1px solid #1a2d45",
+                    borderRadius: "4px",
+                    padding: "10px",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "9px",
+                      color: "#64748b",
+                      letterSpacing: "0.1em",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    PREDICTION WINDOW · 风险时间窗
+                  </div>
+
+                  {displayData.predictionTimeline.map((item, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        marginBottom:
+                          idx !== REPORT.predictionTimeline.length - 1
+                            ? "8px"
+                            : 0,
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: "46px",
+                          fontSize: "10px",
+                          color: item.color,
+                          fontWeight: 700,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {item.time}
+                      </div>
+
+                      <div
+                        style={{
+                          width: "6px",
+                          height: "6px",
+                          borderRadius: "50%",
+                          background: item.color,
+                          flexShrink: 0,
+                        }}
+                      />
+
+                      <div style={{ fontSize: "10px", color: "#cbd5e1" }}>
+                        {item.label}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </FadeBlock>
+
+              <FadeBlock show={phase >= 3} delay={500}>
+                <div
+                  style={{
+                    marginTop: "12px",
+                    background: "#040810",
+                    border: "1px solid #1a2d45",
+                    borderRadius: "4px",
+                    padding: "10px",
+                    ...getHighlightStyle(highlightBlock === 'candidates'),
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "9px",
+                      color: "#64748b",
+                      letterSpacing: "0.1em",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    TARGET CANDIDATES · 候选目标
+                  </div>
+
+                  {displayData.targetCandidates.map((item, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        marginBottom:
+                          idx !== REPORT.targetCandidates.length - 1
+                            ? "8px"
+                            : 0,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          marginBottom: "4px",
+                        }}
+                      >
+                        <span style={{ fontSize: "10px", color: "#e2e8f0" }}>
+                          {item.name}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "10px",
+                            color: item.color,
+                            fontWeight: 700,
+                          }}
+                        >
+                          {(item.confidence * 100).toFixed(0)}%
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          height: "3px",
+                          background: "#0d1a2e",
+                          borderRadius: "2px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: `${item.confidence * 100}%`,
+                            height: "100%",
+                            background: item.color,
+                            borderRadius: "2px",
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </FadeBlock>
+
+              <FadeBlock show={phase >= 3} delay={800}>
+                <div
+                  style={{
+                    marginTop: "12px",
+                    background: "#040810",
+                    border: "1px solid #1a2d45",
+                    borderRadius: "4px",
+                    padding: "10px",
+                    ...getHighlightStyle(highlightBlock === 'suggestions'),
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "9px",
+                      color: "#64748b",
+                      letterSpacing: "0.1em",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    AGENT SUGGESTIONS · 建议动作
+                  </div>
+
+                  {displayData.agentSuggestions.map((item, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        fontSize: "10px",
+                        color: "#94a3b8",
+                        lineHeight: 1.7,
+                        marginBottom:
+                          idx !== REPORT.agentSuggestions.length - 1
+                            ? "6px"
+                            : 0,
+                      }}
+                    >
+                      {idx + 1}. {item}
+                    </div>
+                  ))}
+                </div>
+              </FadeBlock>
+
+              <FadeBlock show={phase >= 3} delay={1000}>
+                <div
+                  style={{
+                    marginTop: "12px",
+                    padding: "8px",
+                    background: "#040810",
+                    borderRadius: "3px",
+                    fontSize: "10px",
+                    color: "#64748b",
+                  }}
+                >
+                  系统将在预测时间前2小时自动触发卫星拍摄任务，验证结果将实时更新本报告。
+                </div>
+              </FadeBlock>
             </div>
           )}
 
@@ -1535,7 +1930,9 @@ export default function Report() {
               <div
                 style={{ fontSize: "10px", color: "#64748b", marginTop: "3px" }}
               >
-                支持滚轮缩放 / 拖拽平移 / 双击重置
+                {viewMode === "3d"
+                  ? "支持 Cesium 旋转 / 缩放"
+                  : "支持滚轮缩放 / 拖拽平移 / 双击重置"}
               </div>
             </div>
 
@@ -1544,7 +1941,7 @@ export default function Report() {
                 onClick={() => setViewMode((v) => (v === "2d" ? "3d" : "2d"))}
                 style={toolBtnStyle(viewMode === "3d")}
               >
-                {viewMode === "3d" ? "3D视角" : "2D视角"}
+                {viewMode === "3d" ? "切换到2D" : "切换到3D"}
               </button>
               <button
                 onClick={() => setExpanded(false)}
@@ -1574,6 +1971,14 @@ export default function Report() {
       )}
     </>
   );
+}
+
+function getHighlightStyle(active) {
+  return {
+    transition: 'all 0.35s ease',
+    boxShadow: active ? '0 0 0 1px #22c55e55, 0 0 18px #22c55e22' : 'none',
+    borderColor: active ? '#22c55e' : undefined,
+  }
 }
 
 function toolBtnStyle(active) {
