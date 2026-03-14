@@ -1,69 +1,83 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import * as d3 from 'd3'
-import { SIM_AGENTS, SIM_INTERACTIONS, SIM_PHASES, SIM_LOGS } from '../../data/mockData'
+import {
+  SIM_SEED_NODES, SIM_SEED_EDGES,
+  SIM_AGENTS, SIM_ROUNDS, SIM_LOGS,
+} from '../../data/mockData'
 
-// ── Color utilities ────────────────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
-function agentColor(type) {
-  if (type === 'military')      return '#ef4444'
-  if (type === 'diplomatic')    return '#0ea5e9'
-  if (type === 'government')    return '#f59e0b'
-  if (type === 'international') return '#22c55e'
-  return '#64748b'
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+
+function agentById(id) { return SIM_AGENTS.find(a => a.id === id) }
+
+function nodeColor(n) {
+  if (n.type === 'seed_event')    return '#f59e0b'
+  if (n.type === 'seed_actor')    return '#f59e0b'
+  if (n.type === 'seed_location') return '#f59e0b'
+  const ag = agentById(n.agentId)
+  return ag?.color ?? '#64748b'
 }
 
-function interactionColor(type) {
-  if (type === 'strike')      return '#ef4444'
-  if (type === 'retaliation') return '#f97316'
-  if (type === 'deterrence')  return '#0ea5e9'
-  if (type === 'intel')       return '#22c55e'
-  if (type === 'diplomatic')  return '#8b5cf6'
-  if (type === 'protest')     return '#f59e0b'
-  if (type === 'inspection')  return '#64748b'
-  return '#334155'
+function nodeRadius(n) {
+  if (n.type?.startsWith('seed')) return 26
+  if (n.agentId) return 14  // agent ref: used internally — agent nodes size
+  return 14
 }
 
-function threatColor(t) {
-  if (t >= 0.8) return '#ef4444'
-  if (t >= 0.5) return '#f59e0b'
-  if (t >= 0.3) return '#0ea5e9'
-  return '#22c55e'
+function typeIcon(type) {
+  if (type === 'assessment') return '◉'
+  if (type === 'report')     return '▤'
+  if (type === 'command')    return '⚡'
+  if (type === 'intel')      return '◈'
+  if (type === 'media')      return '◎'
+  if (type === 'defense')    return '⬡'
+  if (type === 'escalation') return '▲'
+  if (type === 'diplomacy')  return '◇'
+  return '·'
 }
 
-// ── AgentList left panel ───────────────────────────────────────────────────────
+// Build initial graph: seed nodes + agent nodes + seed edges + agent→seed edges
+function buildInitialGraph() {
+  const nodes = [
+    ...SIM_SEED_NODES.map(n => ({ ...n, r: 26 })),
+    ...SIM_AGENTS.map(a => ({ id: a.id, label: a.shortName, sublabel: a.role, type: 'agent', agentId: a.id, r: 20 })),
+  ]
+  const links = [
+    ...SIM_SEED_EDGES.map(e => ({ ...e })),
+    ...SIM_AGENTS.map(a => ({
+      id: `init_${a.id}`, source: a.id, target: a.seedLink, virtual: false,
+    })),
+  ]
+  return { nodes, links }
+}
 
-function AgentList({ agents, selectedId, onSelect, phase, running, onStart, onStop }) {
+// ── Left Panel: Agent List ─────────────────────────────────────────────────────
+
+function AgentPanel({ activeAgentId, round, running, onStart, onStop, nodeCount }) {
   return (
     <div style={{
       width: '220px', flexShrink: 0,
       borderRight: '1px solid #1a2d45',
       display: 'flex', flexDirection: 'column',
       background: '#040810',
-      overflow: 'hidden',
     }}>
-      {/* Phase progress */}
-      <div style={{ padding: '12px 12px 8px', borderBottom: '1px solid #1a2d45' }}>
-        <div style={{ fontSize: '9px', color: '#475569', letterSpacing: '0.1em', marginBottom: '8px' }}>
-          模拟阶段
+      {/* Header */}
+      <div style={{ padding: '12px', borderBottom: '1px solid #1a2d45' }}>
+        <div style={{ fontSize: '9px', color: '#475569', letterSpacing: '0.12em', marginBottom: '6px' }}>
+          模拟角色 · {SIM_AGENTS.length} AGENTS
         </div>
-        <div style={{ display: 'flex', gap: '4px' }}>
-          {SIM_PHASES.map(p => (
-            <div key={p.id} style={{ flex: 1 }}>
+        {/* Round indicator */}
+        <div style={{ display: 'flex', gap: '3px' }}>
+          {['种子', '轮次1', '轮次2', '轮次3'].map((label, i) => (
+            <div key={i} style={{ flex: 1, textAlign: 'center' }}>
               <div style={{
-                height: '3px',
-                background: phase >= p.id ? '#f59e0b' : '#1a2d45',
-                borderRadius: '2px',
+                height: '3px', borderRadius: '1px',
+                background: round >= i ? '#f59e0b' : '#1a2d45',
                 transition: 'background 0.4s',
               }} />
-              <div style={{
-                fontSize: '8px',
-                color: phase >= p.id ? '#f59e0b' : '#334155',
-                marginTop: '4px',
-                textAlign: 'center',
-                letterSpacing: '0.05em',
-                transition: 'color 0.4s',
-              }}>
-                {p.label}
+              <div style={{ fontSize: '8px', color: round >= i ? '#f59e0b' : '#1e3a5f', marginTop: '3px', transition: 'color 0.4s' }}>
+                {label}
               </div>
             </div>
           ))}
@@ -71,185 +85,185 @@ function AgentList({ agents, selectedId, onSelect, phase, running, onStart, onSt
       </div>
 
       {/* Agent list */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-        {agents.map(ag => (
-          <div
-            key={ag.id}
-            onClick={() => onSelect(ag.id === selectedId ? null : ag.id)}
-            style={{
-              padding: '8px 12px',
-              cursor: 'pointer',
-              borderLeft: ag.id === selectedId ? '2px solid #f59e0b' : '2px solid transparent',
-              background: ag.id === selectedId ? 'rgba(245,158,11,0.05)' : 'transparent',
-              transition: 'all 0.15s',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-              <div style={{
-                width: '8px', height: '8px', borderRadius: '50%',
-                background: agentColor(ag.type), flexShrink: 0,
-              }} />
-              <div style={{ fontSize: '11px', color: '#cbd5e1', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {ag.name}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {SIM_AGENTS.map(ag => {
+          const isActive = ag.id === activeAgentId
+          return (
+            <div key={ag.id} style={{
+              padding: '7px 12px',
+              borderLeft: `2px solid ${isActive ? ag.color : 'transparent'}`,
+              background: isActive ? `${ag.color}0a` : 'transparent',
+              transition: 'all 0.2s',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{
+                  width: '7px', height: '7px', borderRadius: '50%',
+                  background: ag.color, flexShrink: 0,
+                  boxShadow: isActive ? `0 0 6px ${ag.color}` : 'none',
+                  transition: 'box-shadow 0.2s',
+                }} />
+                <div style={{ fontSize: '11px', color: isActive ? '#e2e8f0' : '#94a3b8', flex: 1, transition: 'color 0.2s' }}>
+                  {ag.shortName}
+                </div>
+                {isActive && (
+                  <div style={{
+                    fontSize: '9px', color: ag.color,
+                    animation: 'blink 0.8s step-end infinite',
+                  }}>
+                    ▶ 生成中
+                  </div>
+                )}
               </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '5px' }}>
-              <div style={{ fontSize: '9px', color: '#475569', background: '#0f1a2e', padding: '1px 5px', borderRadius: '2px' }}>
+              <div style={{ fontSize: '9px', color: '#334155', marginTop: '2px', marginLeft: '13px' }}>
                 {ag.role}
               </div>
-              <div style={{
-                fontSize: '9px',
-                padding: '1px 5px', borderRadius: '2px',
-                background: ag.status === 'active' ? 'rgba(239,68,68,0.12)' :
-                  ag.status === 'alert' ? 'rgba(249,115,22,0.12)' :
-                  ag.status === 'monitoring' ? 'rgba(14,165,233,0.12)' :
-                  'rgba(100,116,139,0.12)',
-                color: ag.status === 'active' ? '#ef4444' :
-                  ag.status === 'alert' ? '#f97316' :
-                  ag.status === 'monitoring' ? '#0ea5e9' :
-                  '#64748b',
-              }}>
-                {ag.status}
-              </div>
             </div>
-            {/* Threat bar */}
-            <div style={{ height: '3px', background: '#0f1a2e', borderRadius: '2px', overflow: 'hidden' }}>
-              <div style={{
-                height: '100%',
-                width: `${ag.threat * 100}%`,
-                background: threatColor(ag.threat),
-                transition: 'width 0.5s',
-              }} />
-            </div>
-            <div style={{ fontSize: '9px', color: '#334155', marginTop: '2px', textAlign: 'right' }}>
-              威胁 {(ag.threat * 100).toFixed(0)}%
-            </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
-      {/* Control buttons */}
-      <div style={{ padding: '12px', borderTop: '1px solid #1a2d45' }}>
+      {/* Graph stats */}
+      <div style={{ padding: '8px 12px', borderTop: '1px solid #0f1a2e', borderBottom: '1px solid #1a2d45' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px' }}>
+          <span style={{ color: '#334155' }}>图谱节点</span>
+          <span style={{ color: '#f59e0b', fontFamily: 'monospace' }}>{nodeCount}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', marginTop: '3px' }}>
+          <span style={{ color: '#334155' }}>虚拟节点</span>
+          <span style={{ color: '#64748b', fontFamily: 'monospace' }}>{Math.max(0, nodeCount - 11)}</span>
+        </div>
+      </div>
+
+      {/* Control */}
+      <div style={{ padding: '10px 12px' }}>
         {!running ? (
-          <button
-            onClick={onStart}
-            disabled={phase === 3}
-            style={{
-              width: '100%', padding: '8px',
-              background: phase === 3 ? '#1a2d45' : 'rgba(245,158,11,0.1)',
-              border: `1px solid ${phase === 3 ? '#1a2d45' : '#f59e0b'}`,
-              color: phase === 3 ? '#334155' : '#f59e0b',
-              fontSize: '11px', letterSpacing: '0.08em',
-              cursor: phase === 3 ? 'default' : 'pointer',
-              borderRadius: '2px',
-              transition: 'all 0.15s',
-            }}
-          >
-            {phase === 3 ? '✓ 模拟已完成' : '▶ 启动模拟'}
+          <button onClick={onStart} disabled={round >= 3} style={{
+            width: '100%', padding: '8px',
+            background: round >= 3 ? '#1a2d45' : 'rgba(245,158,11,0.1)',
+            border: `1px solid ${round >= 3 ? '#1a2d45' : '#f59e0b'}`,
+            color: round >= 3 ? '#334155' : '#f59e0b',
+            fontSize: '11px', letterSpacing: '0.08em',
+            cursor: round >= 3 ? 'default' : 'pointer', borderRadius: '2px',
+          }}>
+            {round >= 3 ? '✓ 模拟已完成' : round === 0 ? '▶ 启动模拟' : `▶ 继续轮次 ${round + 1}`}
           </button>
         ) : (
-          <button
-            onClick={onStop}
-            style={{
-              width: '100%', padding: '8px',
-              background: 'rgba(239,68,68,0.1)',
-              border: '1px solid #ef4444',
-              color: '#ef4444',
-              fontSize: '11px', letterSpacing: '0.08em',
-              cursor: 'pointer',
-              borderRadius: '2px',
-            }}
-          >
+          <button onClick={onStop} style={{
+            width: '100%', padding: '8px',
+            background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444',
+            color: '#ef4444', fontSize: '11px', cursor: 'pointer', borderRadius: '2px',
+          }}>
             ■ 停止模拟
           </button>
         )}
-        <div style={{ fontSize: '9px', color: '#1e3a5f', marginTop: '6px', textAlign: 'center' }}>
-          {SIM_PHASES[Math.min(phase, 3)]?.desc}
+        <div style={{ fontSize: '9px', color: '#1e3a5f', marginTop: '6px', textAlign: 'center', lineHeight: 1.4 }}>
+          {round === 0 ? '以信实链验证事件为种子' :
+           round === 1 ? '即时反应 T+0~2h' :
+           round === 2 ? '次级响应 T+2~12h' :
+           '态势收敛 T+12~72h'}
         </div>
       </div>
+
+      <style>{`@keyframes blink { 50% { opacity: 0; } }`}</style>
     </div>
   )
 }
 
-// ── SimGraph D3 force-directed graph ───────────────────────────────────────────
+// ── Center: D3 Knowledge Graph ─────────────────────────────────────────────────
 
-function SimGraph({ agents, interactions, selectedId, onSelect }) {
-  const svgRef = useRef(null)
-  const simRef = useRef(null)
+function SimGraph({ graphData, selectedId, onSelect }) {
+  const svgRef  = useRef(null)
+  const simRef  = useRef(null)
+  const posCache = useRef({})   // id → {x, y}
+  const gRef    = useRef(null)  // main <g> selection
 
   useEffect(() => {
     const el = svgRef.current
     if (!el) return
 
-    const W = el.clientWidth || 600
+    const W = el.clientWidth || 700
     const H = el.clientHeight || 500
+
+    // Stop existing simulation
+    if (simRef.current) simRef.current.stop()
 
     const svg = d3.select(el)
     svg.selectAll('*').remove()
 
-    // Inject animations
-    svg.append('defs').html(`
-      <style>
-        @keyframes pulse-ring {
-          0%   { r: 0; opacity: 0.6; }
-          100% { r: 28px; opacity: 0; }
-        }
-        .agent-pulse {
-          animation: pulse-ring 2s ease-out infinite;
-          transform-box: fill-box;
-          transform-origin: center;
-        }
-      </style>
-      ${interactions.map(d => `
-        <marker id="arrow-${d.id}" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-          <path d="M0,0 L0,6 L6,3 z" fill="${interactionColor(d.type)}" opacity="0.8"/>
-        </marker>
-      `).join('')}
+    // Defs: arrow markers + CSS animations
+    const defs = svg.append('defs')
+    defs.append('style').text(`
+      @keyframes pulse-seed {
+        0%   { r: 30px; opacity: 0.4; }
+        100% { r: 50px; opacity: 0; }
+      }
+      @keyframes appear-virtual {
+        from { opacity: 0; transform: scale(0.3); }
+        to   { opacity: 1; transform: scale(1); }
+      }
+      .seed-pulse { animation: pulse-seed 2.5s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+      .virtual-appear { animation: appear-virtual 0.4s ease-out forwards; transform-box: fill-box; transform-origin: center; }
     `)
 
+    // Arrow marker factory
+    const addMarker = (id, color) => {
+      defs.append('marker')
+        .attr('id', id).attr('markerWidth', 6).attr('markerHeight', 6)
+        .attr('refX', 5).attr('refY', 3).attr('orient', 'auto')
+        .append('path').attr('d', 'M0,0 L0,6 L6,3 z')
+        .attr('fill', color).attr('opacity', 0.7)
+    }
+    addMarker('arr-solid', '#475569')
+    addMarker('arr-virtual', '#334155')
+    SIM_AGENTS.forEach(a => addMarker(`arr-${a.id}`, a.color))
+
     const g = svg.append('g')
+    gRef.current = g
 
-    // Deep copy nodes/links for D3 mutation
-    const nodes = agents.map(a => ({ ...a }))
-    const links = interactions.map(d => ({ ...d }))
+    // Restore positions from cache
+    const nodes = graphData.nodes.map(n => ({
+      ...n,
+      x: posCache.current[n.id]?.x,
+      y: posCache.current[n.id]?.y,
+    }))
+    const links = graphData.links.map(l => ({ ...l }))
 
-    // Simulation
+    // Force simulation
     const sim = d3.forceSimulation(nodes)
-      .force('link', d3.forceLink(links).id(d => d.id).distance(130).strength(0.6))
-      .force('charge', d3.forceManyBody().strength(-350))
-      .force('center', d3.forceCenter(W / 2, H / 2))
-      .force('collision', d3.forceCollide().radius(d => 14 + d.threat * 16 + 20))
+      .force('link',      d3.forceLink(links).id(d => d.id).distance(d => {
+        const src = typeof d.source === 'object' ? d.source : nodes.find(n => n.id === d.source)
+        const tgt = typeof d.target === 'object' ? d.target : nodes.find(n => n.id === d.target)
+        if (src?.type?.startsWith('seed') || tgt?.type?.startsWith('seed')) return 100
+        if (src?.virtual || tgt?.virtual) return 70
+        return 85
+      }).strength(0.5))
+      .force('charge',    d3.forceManyBody().strength(-220))
+      .force('center',    d3.forceCenter(W / 2, H / 2))
+      .force('collision', d3.forceCollide().radius(d => (d.r ?? 14) + 18))
 
     simRef.current = sim
 
-    // Edges
-    const linkG = g.append('g')
-    const link = linkG.selectAll('line')
-      .data(links)
-      .join('line')
-      .attr('stroke', d => interactionColor(d.type))
-      .attr('stroke-width', d => 1 + d.confidence * 1.5)
-      .attr('stroke-dasharray', d => d.confidence < 0.7 ? '5,4' : null)
-      .attr('opacity', 0.6)
-      .attr('marker-end', d => `url(#arrow-${d.id})`)
+    // ── Edges ──
+    const linkSel = g.append('g').attr('class', 'links')
+      .selectAll('line').data(links).join('line')
+      .attr('stroke', d => {
+        if (!d.virtual) return '#1a2d45'
+        const ag = agentById(d.agentId ?? (typeof d.source === 'object' ? d.source.agentId : null))
+        return ag?.color ?? '#1a2d45'
+      })
+      .attr('stroke-width', d => d.virtual ? 1 : 1.5)
+      .attr('stroke-dasharray', d => d.virtual ? '5,4' : null)
+      .attr('opacity', d => d.virtual ? 0.4 : 0.3)
+      .attr('marker-end', d => {
+        if (!d.virtual) return 'url(#arr-solid)'
+        const srcId = typeof d.source === 'string' ? d.source : d.source?.id
+        const ag = SIM_AGENTS.find(a => a.id === srcId)
+        return ag ? `url(#arr-${ag.id})` : 'url(#arr-virtual)'
+      })
 
-    // Edge labels
-    const edgeLabel = g.append('g')
-      .selectAll('text')
-      .data(links)
-      .join('text')
-      .attr('font-size', 9)
-      .attr('fill', d => interactionColor(d.type))
-      .attr('opacity', 0.7)
-      .attr('text-anchor', 'middle')
-      .attr('font-family', 'monospace')
-      .text(d => d.label)
-
-    // Node groups
-    const nodeG = g.append('g')
-    const node = nodeG.selectAll('g')
-      .data(nodes)
-      .join('g')
+    // ── Nodes ──
+    const nodeSel = g.append('g').attr('class', 'nodes')
+      .selectAll('g').data(nodes).join('g')
       .attr('cursor', 'pointer')
       .on('click', (event, d) => {
         event.stopPropagation()
@@ -260,276 +274,230 @@ function SimGraph({ agents, interactions, selectedId, onSelect }) {
           if (!event.active) sim.alphaTarget(0.3).restart()
           d.fx = d.x; d.fy = d.y
         })
-        .on('drag', (event, d) => {
-          d.fx = event.x; d.fy = event.y
-        })
+        .on('drag', (event, d) => { d.fx = event.x; d.fy = event.y })
         .on('end', (event, d) => {
           if (!event.active) sim.alphaTarget(0)
           d.fx = null; d.fy = null
         })
       )
 
-    // Pulse ring (animated)
-    node.append('circle')
-      .attr('class', 'agent-pulse')
-      .attr('r', 0)
-      .attr('fill', 'none')
-      .attr('stroke', d => agentColor(d.type))
-      .attr('stroke-width', 1.5)
-      .attr('opacity', 0)
-      .style('animation-delay', (_, i) => `${i * 0.4}s`)
+    // Seed pulse ring
+    nodeSel.filter(d => d.type?.startsWith('seed'))
+      .append('circle').attr('class', 'seed-pulse')
+      .attr('r', 30).attr('fill', 'none')
+      .attr('stroke', '#f59e0b').attr('stroke-width', 1)
+      .attr('opacity', 0.4)
+
+    // Virtual nodes: apply appear animation
+    nodeSel.filter(d => d.virtual)
+      .attr('class', 'virtual-appear')
 
     // Main circle
-    node.append('circle')
-      .attr('r', d => 14 + d.threat * 16)
-      .attr('fill', d => agentColor(d.type))
-      .attr('fill-opacity', 0.15)
-      .attr('stroke', d => agentColor(d.type))
-      .attr('stroke-width', 1.5)
+    nodeSel.append('circle')
+      .attr('r', d => d.r ?? 14)
+      .attr('fill', d => nodeColor(d))
+      .attr('fill-opacity', d => d.type?.startsWith('seed') ? 0.18 : d.virtual ? 0.06 : 0.12)
+      .attr('stroke', d => nodeColor(d))
+      .attr('stroke-width', d => d.type?.startsWith('seed') ? 2 : 1.5)
+      .attr('stroke-dasharray', d => d.virtual ? '5,3' : null)
 
-    // Center letter
-    node.append('text')
-      .attr('text-anchor', 'middle')
-      .attr('dominant-baseline', 'central')
-      .attr('font-size', 13)
-      .attr('font-weight', 700)
-      .attr('fill', d => agentColor(d.type))
+    // Center label
+    nodeSel.append('text')
+      .attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
+      .attr('font-size', d => d.type?.startsWith('seed') ? 11 : 10)
+      .attr('fill', d => nodeColor(d))
       .attr('font-family', 'monospace')
-      .text(d => d.name[0])
+      .attr('opacity', d => d.virtual ? 0.7 : 0.9)
+      .text(d => {
+        if (d.type?.startsWith('seed')) return d.label.slice(0, 2)
+        if (d.type === 'agent') return d.label.slice(0, 1)
+        return typeIcon(d.type)
+      })
 
-    // Node name label
-    node.append('text')
+    // Node name below
+    nodeSel.append('text')
       .attr('text-anchor', 'middle')
-      .attr('y', d => 14 + d.threat * 16 + 14)
-      .attr('font-size', 10)
-      .attr('fill', '#94a3b8')
+      .attr('y', d => (d.r ?? 14) + 13)
+      .attr('font-size', 9)
+      .attr('fill', d => d.type?.startsWith('seed') ? '#f59e0b' : d.virtual ? '#475569' : '#64748b')
       .attr('font-family', 'monospace')
-      .text(d => d.name.length > 7 ? d.name.slice(0, 7) + '…' : d.name)
+      .attr('font-style', d => d.virtual ? 'italic' : 'normal')
+      .text(d => {
+        const lbl = d.label ?? ''
+        return lbl.length > 8 ? lbl.slice(0, 8) + '…' : lbl
+      })
+
+    // Probability label for round-3 nodes
+    nodeSel.filter(d => d.probability != null)
+      .append('text')
+      .attr('text-anchor', 'middle')
+      .attr('y', d => (d.r ?? 14) + 24)
+      .attr('font-size', 8)
+      .attr('fill', d => d.probability >= 0.6 ? '#f59e0b' : '#64748b')
+      .attr('font-family', 'monospace')
+      .text(d => `P=${(d.probability * 100).toFixed(0)}%`)
 
     // Tick
     sim.on('tick', () => {
-      link
+      linkSel
         .attr('x1', d => d.source.x)
         .attr('y1', d => d.source.y)
         .attr('x2', d => {
           const dx = d.target.x - d.source.x
           const dy = d.target.y - d.source.y
-          const dist = Math.sqrt(dx * dx + dy * dy)
-          const r = 14 + d.target.threat * 16
-          return dist ? d.target.x - dx / dist * (r + 6) : d.target.x
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1
+          const r = (d.target.r ?? 14) + 5
+          return d.target.x - dx / dist * r
         })
         .attr('y2', d => {
           const dx = d.target.x - d.source.x
           const dy = d.target.y - d.source.y
-          const dist = Math.sqrt(dx * dx + dy * dy)
-          const r = 14 + d.target.threat * 16
-          return dist ? d.target.y - dy / dist * (r + 6) : d.target.y
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1
+          const r = (d.target.r ?? 14) + 5
+          return d.target.y - dy / dist * r
         })
 
-      edgeLabel
-        .attr('x', d => (d.source.x + d.target.x) / 2)
-        .attr('y', d => (d.source.y + d.target.y) / 2 - 6)
+      nodeSel.attr('transform', d => `translate(${d.x},${d.y})`)
 
-      node.attr('transform', d => `translate(${d.x},${d.y})`)
+      // Cache positions
+      nodes.forEach(n => { posCache.current[n.id] = { x: n.x, y: n.y } })
     })
 
     // Zoom
-    const zoom = d3.zoom()
-      .scaleExtent([0.4, 3])
-      .on('zoom', e => g.attr('transform', e.transform))
-    svg.call(zoom)
-
-    // Click background to deselect
+    svg.call(d3.zoom().scaleExtent([0.3, 3]).on('zoom', e => g.attr('transform', e.transform)))
     svg.on('click', () => onSelect(null))
 
-    return () => {
-      sim.stop()
-    }
-  }, [agents, interactions]) // eslint-disable-line react-hooks/exhaustive-deps
+    return () => sim.stop()
+  }, [graphData]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Highlight selected node
+  // Highlight on select change (without re-running simulation)
   useEffect(() => {
-    const svg = d3.select(svgRef.current)
-    svg.selectAll('g > g > g').each(function(d) {
-      const isSelected = selectedId === null || d?.id === selectedId
-      d3.select(this).attr('opacity', isSelected ? 1 : 0.2)
-    })
+    const g = gRef.current
+    if (!g) return
+    g.select('.nodes').selectAll('g')
+      .attr('opacity', d => selectedId === null || d?.id === selectedId ? 1 : 0.15)
   }, [selectedId])
 
   return (
-    <svg
-      ref={svgRef}
-      style={{ width: '100%', height: '100%', background: 'transparent' }}
-    />
+    <svg ref={svgRef} style={{ width: '100%', height: '100%' }} />
   )
 }
 
-// ── AgentDetail right panel ────────────────────────────────────────────────────
+// ── Right Panel: Node / Agent Detail ──────────────────────────────────────────
 
-function AgentDetail({ agent, interactions, onClose }) {
-  const outgoing = interactions.filter(i => i.source === agent.id)
-  const incoming = interactions.filter(i => i.target === agent.id)
-  const color = agentColor(agent.type)
-  const tc = threatColor(agent.threat)
+function NodeDetail({ node, onClose }) {
+  const ag = agentById(node.agentId)
+  const color = nodeColor(node)
+  const isSeed = node.type?.startsWith('seed')
 
   return (
-    <div style={{
-      height: '100%', overflowY: 'auto',
-      padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px',
-    }}>
-      {/* Header */}
+    <div style={{ height: '100%', overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <div style={{ fontSize: '13px', fontWeight: 700, color: '#e2e8f0', marginBottom: '4px' }}>
-            {agent.name}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+            {node.virtual && <span style={{ fontSize: '9px', color: '#475569', border: '1px dashed #334155', padding: '1px 5px', borderRadius: '2px' }}>虚拟推演节点</span>}
+            {isSeed && <span style={{ fontSize: '9px', color: '#f59e0b', background: 'rgba(245,158,11,0.1)', padding: '1px 5px', borderRadius: '2px' }}>已验证种子事件</span>}
           </div>
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <span style={{ fontSize: '9px', color, background: `${color}18`, padding: '2px 6px', borderRadius: '2px' }}>
-              {agent.role}
-            </span>
-            <span style={{ fontSize: '9px', color: '#475569', background: '#0f1a2e', padding: '2px 6px', borderRadius: '2px' }}>
-              {agent.type}
-            </span>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: '#e2e8f0', lineHeight: 1.4 }}>
+            {node.label}
           </div>
+          {node.sublabel && <div style={{ fontSize: '10px', color: '#475569', marginTop: '2px' }}>{node.sublabel}</div>}
         </div>
-        <button
-          onClick={onClose}
-          style={{ background: 'none', border: 'none', color: '#334155', cursor: 'pointer', fontSize: '16px', padding: '0' }}
-        >×</button>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#334155', cursor: 'pointer', fontSize: '16px' }}>×</button>
       </div>
 
-      {/* Threat score */}
+      {/* Description */}
       <div style={{ background: '#040f1a', border: '1px solid #1a2d45', borderRadius: '4px', padding: '10px' }}>
-        <div style={{ fontSize: '9px', color: '#475569', letterSpacing: '0.1em', marginBottom: '4px' }}>威胁评估</div>
-        <div style={{ fontSize: '28px', fontWeight: 800, color: tc, fontFamily: 'monospace', letterSpacing: '-0.02em' }}>
-          {(agent.threat * 100).toFixed(0)}%
-        </div>
-        <div style={{ height: '4px', background: '#1a2d45', borderRadius: '2px', marginTop: '6px', overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: `${agent.threat * 100}%`, background: tc }} />
+        <div style={{ fontSize: '11px', color: '#94a3b8', lineHeight: 1.7, fontStyle: node.virtual ? 'italic' : 'normal' }}>
+          {node.desc ?? node.sublabel ?? '—'}
         </div>
       </div>
 
-      {/* Summary */}
-      <div>
-        <div style={{ fontSize: '9px', color: '#475569', letterSpacing: '0.1em', marginBottom: '6px' }}>态势摘要</div>
-        <div style={{ fontSize: '11px', color: '#94a3b8', lineHeight: 1.7 }}>{agent.summary}</div>
-      </div>
-
-      {/* Predicted actions */}
-      <div>
-        <div style={{ fontSize: '9px', color: '#475569', letterSpacing: '0.1em', marginBottom: '6px' }}>预测行动</div>
-        {agent.actions.map((action, i) => (
-          <div key={i} style={{
-            fontSize: '11px', color: '#cbd5e1',
-            padding: '5px 8px', marginBottom: '4px',
-            background: '#040f1a',
-            borderLeft: `2px solid ${color}`,
-          }}>
-            {action}
+      {/* Probability (round 3) */}
+      {node.probability != null && (
+        <div style={{ background: '#040f1a', border: '1px solid #1a2d45', borderRadius: '4px', padding: '10px' }}>
+          <div style={{ fontSize: '9px', color: '#475569', letterSpacing: '0.1em', marginBottom: '6px' }}>预测概率</div>
+          <div style={{ fontSize: '28px', fontWeight: 800, fontFamily: 'monospace', color: node.probability >= 0.6 ? '#f59e0b' : '#64748b' }}>
+            {(node.probability * 100).toFixed(0)}%
           </div>
-        ))}
-      </div>
-
-      {/* Interactions */}
-      {outgoing.length > 0 && (
-        <div>
-          <div style={{ fontSize: '9px', color: '#475569', letterSpacing: '0.1em', marginBottom: '6px' }}>发起交互</div>
-          {outgoing.map(ix => (
-            <div key={ix.id} style={{
-              padding: '6px 8px', marginBottom: '4px',
-              background: '#040f1a', border: '1px solid #1a2d45', borderRadius: '2px',
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                <span style={{ fontSize: '10px', color: interactionColor(ix.type) }}>{ix.label}</span>
-                <span style={{ fontSize: '9px', color: '#334155' }}>{ix.timeWindow}</span>
-              </div>
-              <div style={{ fontSize: '9px', color: '#475569' }}>{ix.desc}</div>
-            </div>
-          ))}
+          <div style={{ height: '4px', background: '#1a2d45', borderRadius: '2px', marginTop: '6px', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${node.probability * 100}%`, background: node.probability >= 0.6 ? '#f59e0b' : '#64748b' }} />
+          </div>
         </div>
       )}
 
-      {incoming.length > 0 && (
+      {/* Generating agent */}
+      {ag && (
         <div>
-          <div style={{ fontSize: '9px', color: '#475569', letterSpacing: '0.1em', marginBottom: '6px' }}>接收交互</div>
-          {incoming.map(ix => (
-            <div key={ix.id} style={{
-              padding: '6px 8px', marginBottom: '4px',
-              background: '#040f1a', border: '1px solid #1a2d45', borderRadius: '2px',
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                <span style={{ fontSize: '10px', color: interactionColor(ix.type) }}>{ix.label}</span>
-                <span style={{ fontSize: '9px', color: '#334155' }}>{ix.timeWindow}</span>
-              </div>
-              <div style={{ fontSize: '9px', color: '#475569' }}>{ix.desc}</div>
+          <div style={{ fontSize: '9px', color: '#475569', letterSpacing: '0.1em', marginBottom: '6px' }}>生成角色</div>
+          <div style={{ padding: '8px', background: '#040f1a', border: `1px solid ${ag.color}30`, borderRadius: '3px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+              <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: ag.color }} />
+              <span style={{ fontSize: '12px', color: '#e2e8f0', fontWeight: 600 }}>{ag.name}</span>
+              <span style={{ fontSize: '9px', color: '#475569', background: '#0f1a2e', padding: '1px 5px', borderRadius: '2px' }}>{ag.role}</span>
             </div>
-          ))}
+            <div style={{ fontSize: '10px', color: '#64748b', lineHeight: 1.6, borderTop: '1px solid #0f1a2e', paddingTop: '6px' }}>
+              <span style={{ color: '#334155' }}>视角提示：</span>{ag.persona}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Node type */}
+      {node.type && !isSeed && (
+        <div style={{ fontSize: '9px', color: '#1e3a5f', marginTop: 'auto' }}>
+          NODE TYPE · {node.type?.toUpperCase()}
+          {node.round && ` · ROUND ${node.round}`}
         </div>
       )}
     </div>
   )
 }
 
-// ── SimLog right panel ─────────────────────────────────────────────────────────
+// ── Right Panel: Simulation Log ────────────────────────────────────────────────
 
-function SimLog({ logs, phase }) {
-  const logEndRef = useRef(null)
+function SimLog({ logs, round }) {
+  const endRef = useRef(null)
 
-  useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [logs])
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [logs])
 
-  const levelColor = lvl => lvl === 'error' ? '#ef4444' : lvl === 'warn' ? '#f59e0b' : '#0ea5e9'
-
-  const lastLog = logs[logs.length - 1]
+  const levelColor = l => l === 'error' ? '#ef4444' : l === 'warn' ? '#f59e0b' : '#0ea5e9'
+  const roundColor = r => r === 1 ? '#3b82f6' : r === 2 ? '#f59e0b' : r === 3 ? '#ef4444' : '#475569'
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: '16px', gap: '10px' }}>
-      <div style={{ fontSize: '11px', color: '#64748b', letterSpacing: '0.1em', fontFamily: 'monospace' }}>
-        SIM LOG · 实时推演日志
+      <div style={{ fontSize: '10px', color: '#334155', letterSpacing: '0.12em', fontFamily: 'monospace', flexShrink: 0 }}>
+        SIM LOG · 知识图谱生长日志
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
         {logs.length === 0 ? (
-          <div style={{ fontSize: '11px', color: '#1e3a5f', padding: '12px 0', textAlign: 'center' }}>
-            等待启动模拟…
+          <div style={{ fontSize: '11px', color: '#1e3a5f', padding: '16px 0', textAlign: 'center' }}>
+            点击「▶ 启动模拟」开始推演…
           </div>
         ) : logs.map((log, i) => (
-          <div key={i} style={{
-            display: 'flex', gap: '8px', alignItems: 'flex-start',
-            padding: '4px 0',
-            borderBottom: '1px solid #0a1628',
-          }}>
-            <span style={{ fontSize: '9px', color: '#334155', fontFamily: 'monospace', flexShrink: 0, paddingTop: '1px' }}>
+          <div key={i} style={{ display: 'flex', gap: '7px', padding: '3px 0', borderBottom: '1px solid #080f1a', alignItems: 'flex-start' }}>
+            <span style={{ fontSize: '9px', color: '#1e3a5f', fontFamily: 'monospace', flexShrink: 0, paddingTop: '1px' }}>
               {log.time}
             </span>
-            <span style={{
-              width: '6px', height: '6px', borderRadius: '50%',
-              background: levelColor(log.level),
-              flexShrink: 0, marginTop: '3px',
-              boxShadow: `0 0 4px ${levelColor(log.level)}`,
-            }} />
-            <span style={{ fontSize: '11px', color: '#94a3b8', lineHeight: 1.5 }}>
-              {log.text}
-            </span>
+            {log.round > 0 && (
+              <span style={{ fontSize: '8px', color: roundColor(log.round), background: `${roundColor(log.round)}18`, padding: '1px 4px', borderRadius: '1px', flexShrink: 0 }}>
+                R{log.round}
+              </span>
+            )}
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: levelColor(log.level), flexShrink: 0, marginTop: '3px', boxShadow: `0 0 4px ${levelColor(log.level)}` }} />
+            <span style={{ fontSize: '10px', color: '#64748b', lineHeight: 1.5 }}>{log.text}</span>
           </div>
         ))}
-        <div ref={logEndRef} />
+        <div ref={endRef} />
       </div>
 
-      {/* Summary footer */}
-      {phase === 3 && lastLog && (
-        <div style={{
-          padding: '10px',
-          background: 'rgba(245,158,11,0.05)',
-          border: '1px solid rgba(245,158,11,0.2)',
-          borderRadius: '3px',
-        }}>
-          <div style={{ fontSize: '9px', color: '#f59e0b', letterSpacing: '0.1em', marginBottom: '4px' }}>
-            模拟结论
-          </div>
-          <div style={{ fontSize: '11px', color: '#cbd5e1' }}>
-            整体置信度 <span style={{ color: '#22c55e', fontWeight: 700 }}>0.79</span> · 主路径：<span style={{ color: '#f59e0b' }}>有限冲突后降级</span>
+      {round >= 3 && (
+        <div style={{ padding: '10px', background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '3px', flexShrink: 0 }}>
+          <div style={{ fontSize: '9px', color: '#f59e0b', letterSpacing: '0.1em', marginBottom: '4px' }}>推演结论</div>
+          <div style={{ fontSize: '11px', color: '#cbd5e1', lineHeight: 1.6 }}>
+            主路径：<span style={{ color: '#f59e0b' }}>代理人冲突</span> + <span style={{ color: '#0ea5e9' }}>外交降级</span> 并行<br/>
+            整体置信度 <span style={{ color: '#22c55e', fontWeight: 700 }}>0.76</span> · 图谱节点 <span style={{ color: '#f59e0b' }}>27</span>
           </div>
         </div>
       )}
@@ -537,171 +505,173 @@ function SimLog({ logs, phase }) {
   )
 }
 
-// ── WorldSim main component ────────────────────────────────────────────────────
+// ── Main Component ─────────────────────────────────────────────────────────────
 
 export default function WorldSim() {
-  const [phase, setPhase]           = useState(0)
-  const [selectedId, setSelectedId] = useState(null)
+  const [graphData, setGraphData]   = useState(() => buildInitialGraph())
+  const [round, setRound]           = useState(0)
   const [running, setRunning]       = useState(false)
+  const [activeAgentId, setActiveAgentId] = useState(null)
+  const [selectedId, setSelectedId] = useState(null)
   const [visibleLogs, setVisibleLogs] = useState([])
-  const timerRef = useRef([])
+  const runningRef = useRef(false)
 
-  const selectedAgent = SIM_AGENTS.find(a => a.id === selectedId)
+  const selectedNode = graphData.nodes.find(n => n.id === selectedId)
 
-  const clearTimers = useCallback(() => {
-    timerRef.current.forEach(t => clearTimeout(t))
-    timerRef.current = []
-  }, [])
-
-  const handleStart = useCallback(() => {
-    if (running || phase === 3) return
+  const handleStart = useCallback(async () => {
+    if (running || round >= 3) return
+    runningRef.current = true
     setRunning(true)
 
-    let logIdx = 0
-    let currentPhase = phase
-
-    // Stream logs with delay
-    const streamLog = (delay) => {
-      if (logIdx >= SIM_LOGS.length) return
-      const t = setTimeout(() => {
-        const log = SIM_LOGS[logIdx++]
+    // Add seed logs first if round 0
+    if (round === 0) {
+      for (const log of SIM_LOGS.filter(l => l.round === 0)) {
+        if (!runningRef.current) break
         setVisibleLogs(prev => [...prev, log])
-        streamLog(300)
-      }, delay)
-      timerRef.current.push(t)
+        await sleep(500)
+      }
     }
 
-    // Phase progression
-    const phaseDelays = [800, 2800, 5500, 9000]
-    phaseDelays.slice(currentPhase + 1).forEach((delay, i) => {
-      const nextPhase = currentPhase + 1 + i
-      const t = setTimeout(() => {
-        setPhase(nextPhase)
-        if (nextPhase === 3) {
-          setRunning(false)
-        }
-      }, delay)
-      timerRef.current.push(t)
-    })
+    for (let ri = round; ri < SIM_ROUNDS.length; ri++) {
+      if (!runningRef.current) break
+      const simRound = SIM_ROUNDS[ri]
+      setRound(ri + 1)
 
-    streamLog(200)
-  }, [running, phase])
+      for (let ni = 0; ni < simRound.nodes.length; ni++) {
+        if (!runningRef.current) break
+        const vNode = { ...simRound.nodes[ni], virtual: true, round: ri + 1, r: 14 }
+        const vEdge = { ...simRound.edges[ni], virtual: true, agentId: vNode.agentId }
+
+        setActiveAgentId(vNode.agentId)
+        await sleep(300)
+
+        setGraphData(prev => ({
+          nodes: [...prev.nodes, vNode],
+          links: [...prev.links, vEdge],
+        }))
+
+        // Add matching log
+        const matchLog = SIM_LOGS.find(l => l.round === ri + 1 && l.text.includes(
+          SIM_AGENTS.find(a => a.id === vNode.agentId)?.shortName ?? '___'
+        ))
+        if (matchLog) setVisibleLogs(prev => [...prev, matchLog])
+
+        await sleep(600)
+      }
+
+      setActiveAgentId(null)
+
+      // Round summary log
+      const summaryLog = SIM_LOGS.find(l => l.round === ri + 1 && l.text.includes('轮次 ' + (ri + 1) + ' 完成'))
+      if (summaryLog) setVisibleLogs(prev => [...prev, summaryLog])
+
+      if (ri < SIM_ROUNDS.length - 1) await sleep(1200)
+    }
+
+    // Final log
+    if (runningRef.current) {
+      const finalLog = SIM_LOGS[SIM_LOGS.length - 1]
+      setVisibleLogs(prev => [...prev, finalLog])
+    }
+
+    runningRef.current = false
+    setRunning(false)
+  }, [running, round])
 
   const handleStop = useCallback(() => {
-    clearTimers()
+    runningRef.current = false
     setRunning(false)
-  }, [clearTimers])
+    setActiveAgentId(null)
+  }, [])
 
-  // Cleanup on unmount
-  useEffect(() => () => clearTimers(), [clearTimers])
-
-  const phaseLabel = SIM_PHASES[Math.min(phase, 3)]?.label ?? '初始化'
+  const roundLabels = ['种子事件', '即时反应 T+0~2h', '次级响应 T+2~12h', '态势收敛 T+12~72h']
 
   return (
     <div style={{
-      display: 'flex', height: '100%', overflow: 'hidden', flexDirection: 'column',
-      background: '#040810', color: '#e2e8f0',
-      fontFamily: 'var(--font-mono, monospace)',
+      display: 'flex', height: '100%', flexDirection: 'column', overflow: 'hidden',
+      background: '#040810', color: '#e2e8f0', fontFamily: 'var(--font-mono, monospace)',
     }}>
-      {/* Top status bar */}
+      {/* Top bar */}
       <div style={{
         height: '40px', flexShrink: 0,
         borderBottom: '1px solid #1a2d45',
         display: 'flex', alignItems: 'center',
         padding: '0 16px', gap: '16px',
-        background: 'rgba(4,8,16,0.95)',
+        background: 'rgba(4,8,16,0.96)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ color: '#f59e0b', fontSize: '13px' }}>◈</span>
-          <span style={{ fontSize: '11px', fontWeight: 700, color: '#e2e8f0', letterSpacing: '0.1em' }}>
-            WORLD SIM
-          </span>
-          <span style={{ fontSize: '10px', color: '#334155' }}>·</span>
-          <span style={{ fontSize: '10px', color: '#475569' }}>地缘博弈推演</span>
+          <span style={{ fontSize: '11px', fontWeight: 700, color: '#e2e8f0', letterSpacing: '0.1em' }}>WORLD SIM</span>
+          <span style={{ fontSize: '10px', color: '#1e3a5f' }}>·</span>
+          <span style={{ fontSize: '10px', color: '#334155' }}>多Agent地缘博弈推演</span>
         </div>
 
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {/* Phase indicators */}
-          {SIM_PHASES.map((p, i) => (
-            <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {i > 0 && <span style={{ color: '#1a2d45', fontSize: '10px' }}>→</span>}
-              <span style={{
-                fontSize: '10px',
-                color: phase >= p.id ? (phase === p.id ? '#f59e0b' : '#334155') : '#1e3a5f',
-                fontWeight: phase === p.id ? 700 : 400,
-                transition: 'color 0.4s',
-              }}>
-                {p.label}
-              </span>
-            </div>
-          ))}
+        {/* Round label */}
+        <div style={{ fontSize: '10px', color: '#475569', marginLeft: '8px', padding: '2px 10px', border: '1px solid #1a2d45', borderRadius: '2px' }}>
+          {roundLabels[Math.min(round, 3)]}
+        </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '12px' }}>
-            <span style={{
-              display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%',
-              background: running ? '#22c55e' : phase === 3 ? '#f59e0b' : '#334155',
-              boxShadow: running ? '0 0 6px #22c55e' : 'none',
-              transition: 'all 0.3s',
-            }} />
-            <span style={{ fontSize: '10px', color: '#475569' }}>
-              {running ? '运行中' : phase === 3 ? '已完成' : '就绪'}
-            </span>
-          </div>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{
+            width: '6px', height: '6px', borderRadius: '50%', display: 'inline-block',
+            background: running ? '#22c55e' : round >= 3 ? '#f59e0b' : '#334155',
+            boxShadow: running ? '0 0 8px #22c55e' : 'none', transition: 'all 0.3s',
+          }} />
+          <span style={{ fontSize: '10px', color: '#475569' }}>
+            {running ? '推演中' : round >= 3 ? '完成' : '就绪'}
+          </span>
+          <span style={{ fontSize: '10px', color: '#1e3a5f' }}>·</span>
+          <span style={{ fontSize: '10px', color: '#334155' }}>
+            虚线节点 = 大模型虚拟推演 · 实线节点 = 信实链已验证
+          </span>
         </div>
       </div>
 
       {/* Main 3-column layout */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Left: agent list */}
-        <AgentList
-          agents={SIM_AGENTS}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-          phase={phase}
+        {/* Left */}
+        <AgentPanel
+          activeAgentId={activeAgentId}
+          round={round}
           running={running}
           onStart={handleStart}
           onStop={handleStop}
+          nodeCount={graphData.nodes.length}
         />
 
-        {/* Center: D3 graph */}
+        {/* Center: graph */}
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-          {/* Grid overlay */}
+          {/* Grid */}
           <div style={{
             position: 'absolute', inset: 0, pointerEvents: 'none',
             backgroundImage: 'linear-gradient(#0a1628 1px, transparent 1px), linear-gradient(90deg, #0a1628 1px, transparent 1px)',
-            backgroundSize: '32px 32px',
-            opacity: 0.5,
+            backgroundSize: '32px 32px', opacity: 0.4,
           }} />
           <SimGraph
-            agents={SIM_AGENTS}
-            interactions={SIM_INTERACTIONS}
+            graphData={graphData}
             selectedId={selectedId}
             onSelect={setSelectedId}
           />
-          {/* Phase watermark */}
+          {/* Legend */}
           <div style={{
-            position: 'absolute', bottom: '12px', left: '50%', transform: 'translateX(-50%)',
-            fontSize: '10px', color: '#1e3a5f', letterSpacing: '0.15em', pointerEvents: 'none',
+            position: 'absolute', bottom: '10px', left: '50%', transform: 'translateX(-50%)',
+            display: 'flex', gap: '16px', fontSize: '9px', color: '#1e3a5f',
+            pointerEvents: 'none',
           }}>
-            {phaseLabel.toUpperCase()} · {SIM_AGENTS.length} AGENTS · {SIM_INTERACTIONS.length} INTERACTIONS
+            <span style={{ borderBottom: '1.5px solid #475569' }}>─── 已确认连接</span>
+            <span style={{ borderBottom: '1.5px dashed #334155' }}>- - - 虚拟推演</span>
+            <span style={{ color: '#f59e0b' }}>◉ 种子事件</span>
+            <span>○ 角色节点</span>
+            <span style={{ fontStyle: 'italic' }}>⬡ 推演动作</span>
           </div>
         </div>
 
-        {/* Right: detail or log */}
-        <div style={{
-          width: '340px', flexShrink: 0,
-          borderLeft: '1px solid #1a2d45',
-          background: '#040810',
-          overflow: 'hidden',
-        }}>
-          {selectedAgent ? (
-            <AgentDetail
-              agent={selectedAgent}
-              interactions={SIM_INTERACTIONS}
-              onClose={() => setSelectedId(null)}
-            />
+        {/* Right */}
+        <div style={{ width: '340px', flexShrink: 0, borderLeft: '1px solid #1a2d45', overflow: 'hidden', background: '#040810' }}>
+          {selectedNode ? (
+            <NodeDetail node={selectedNode} onClose={() => setSelectedId(null)} />
           ) : (
-            <SimLog logs={visibleLogs} phase={phase} />
+            <SimLog logs={visibleLogs} round={round} />
           )}
         </div>
       </div>

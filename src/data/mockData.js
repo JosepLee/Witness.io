@@ -291,61 +291,147 @@ export const CHAINS = [
   { id: 'C', name: '基地扩建链', description: '跑道延伸施工 → 新型雷达疑似部署' },
 ]
 
-// ── 世界模拟数据 ────────────────────────────────────────────────
-// 以信实链验证事件为种子，构建行为方网络，推演未来地缘态势
+// ── 世界模拟 v2：基于F-16打击事件的多角色推演 ─────────────────────────────
+// 以信实链已验证的"以色列F-16打击伊斯法罕"为种子，给不同角色注入独立视角prompt，
+// 推演各方行动，生成的虚拟节点（dashed）代表预测的未来行动/后果。
+
+// 种子节点（来自信实链，已验证，实线）
+export const SIM_SEED_NODES = [
+  { id: 'SN0', label: 'F-16 打击行动', sublabel: '信实链节点 #7 · 已验证',
+    type: 'seed_event',
+    desc: '11月03日 06:12 UTC | 以色列F-16I编队对伊朗伊斯法罕革命卫队核相关设施实施4波次精准打击。卫星热成像确认3处爆炸中心，建筑群损毁率约70%。' },
+  { id: 'SN1', label: '以色列空军 F-16I', sublabel: '内盖夫拉蒙基地起飞',
+    type: 'seed_actor',
+    desc: '4架F-16I战斗机，由以色列内盖夫沙漠拉蒙空军基地起飞，经约旦领空渗透，任务代号不明。' },
+  { id: 'SN2', label: '伊斯法罕核设施', sublabel: '革命卫队研究基地',
+    type: 'seed_location',
+    desc: '伊朗革命卫队伊斯法罕核相关研究设施，卫星热成像确认建筑北翼完全摧毁，地下设施入口被掩埋。' },
+]
+
+export const SIM_SEED_EDGES = [
+  { id: 'SE1', source: 'SN1', target: 'SN0', label: '执行打击', virtual: false },
+  { id: 'SE2', source: 'SN0', target: 'SN2', label: '命中目标', virtual: false },
+]
+
+// 8个模拟角色（各持独立视角/立场/prompt）
 export const SIM_AGENTS = [
-  { id: 'AG1', name: '以色列空军',     role: '攻势方', type: 'military',      status: 'active',      threat: 0.92,
-    summary: 'F-16编队保持高战备，已执行3次打击任务，情报显示第4次任务窗口即将开启。',
-    actions: ['侦察任务 T+2h', '备战状态 T+6h', '可能打击 T+24h'] },
-  { id: 'AG2', name: '伊朗革命卫队',   role: '防御方', type: 'military',      status: 'alert',       threat: 0.78,
-    summary: '侦测到以军雷达信号增强，岸基导弹阵地已激活，无人机部队处于一级战备。',
-    actions: ['导弹就位 T+1h', '无人机备战 T+3h', '报复窗口 T+24h'] },
-  { id: 'AG3', name: '美国中央司令部', role: '监视方', type: 'military',      status: 'monitoring',  threat: 0.45,
-    summary: 'CVN-77编队位于霍尔木兹海峡入口，电子侦察机24小时在轨，向双方释放威慑信号。',
-    actions: ['舰队定位 持续', '情报共享 T+2h', '威慑表态 T+6h'] },
-  { id: 'AG4', name: '联合国安理会',   role: '调解方', type: 'diplomatic',    status: 'negotiating', threat: 0.08,
-    summary: '紧急召开闭门会议，起草停火决议草案，向各方施压要求降级。',
-    actions: ['闭门会议 进行中', '决议草案 T+12h', '投票表决 T+24h'] },
-  { id: 'AG5', name: '伊拉克政府',     role: '中间方', type: 'government',    status: 'neutral',     threat: 0.30,
-    summary: '领土内发生未经授权军事行动，向各方发出外交抗议，要求撤军并赔偿。',
-    actions: ['外交抗议 T+1h', '边境管控 T+3h', '外交斡旋 T+12h'] },
-  { id: 'AG6', name: '国际原子能机构', role: '核查方', type: 'international', status: 'active',      threat: 0.05,
-    summary: '要求对核设施进行紧急视察，已发出正式通知，等待伊方回复。',
-    actions: ['核查请求 已发出', '视察窗口 T+48h', '核查报告 T+72h'] },
+  { id: 'AG1', name: '美国五角大楼', shortName: '五角大楼', role: '战略决策', type: 'us_mil', color: '#3b82f6', seedLink: 'SN0',
+    persona: '美国国防部高级战略顾问，评估中东打击事件的战略影响，权衡戒备升级必要性，首要目标是避免与伊朗全面冲突。' },
+  { id: 'AG2', name: '美军基地指挥官', shortName: '基地指挥官', role: '战术指挥', type: 'us_mil', color: '#60a5fa', seedLink: 'SN1',
+    persona: '美国中东前进基地指挥官，协调打击行动后勤支持，接收飞行员任务报告，准备向五角大楼提交战场评估报告。' },
+  { id: 'AG3', name: '执行飞行员', shortName: '飞行员', role: '任务执行', type: 'us_mil', color: '#93c5fd', seedLink: 'SN1',
+    persona: '以色列空军F-16I飞行员，刚完成高风险打击任务返航，正在进行任务复盘，经历肾上腺素消退后的冷静状态。' },
+  { id: 'AG4', name: '伊朗军方总部', shortName: '伊朗军方', role: '对抗指挥', type: 'iran_mil', color: '#ef4444', seedLink: 'SN2',
+    persona: '伊朗伊斯兰革命卫队最高指挥部，第一反应是震怒与报复冲动，同时冷静评估损失规模，权衡报复时机与方式。' },
+  { id: 'AG5', name: '伊朗现场指挥官', shortName: '现场指挥官', role: '损毁评估', type: 'iran_mil', color: '#f87171', seedLink: 'SN2',
+    persona: '伊斯法罕设施附近革命卫队地区指挥官，正在混乱中组织救援，实时向总部上报人员伤亡和设施损毁情况。' },
+  { id: 'AG6', name: '伊朗防空阵地', shortName: '防空阵地', role: '防御分析', type: 'iran_mil', color: '#fca5a5', seedLink: 'SN0',
+    persona: '伊朗S-300防空系统操作员，打击时未能有效拦截，正在紧急分析雷达回波数据，寻找以军飞行路径漏洞。' },
+  { id: 'AG7', name: '军事情报机构', shortName: '情报机构', role: '情报分析', type: 'intel', color: '#22c55e', seedLink: 'SN0',
+    persona: '美国中情局中东分析小组，综合卫星图像、信号情报和人源情报，独立评估打击效果，预判伊朗48h内可能反应。' },
+  { id: 'AG8', name: '国际媒体', shortName: '媒体', role: '信息扩散', type: 'media', color: '#a78bfa', seedLink: 'SN0',
+    persona: '国际媒体驻中东特派记者网络，正在核实多方消息源，准备发布打击事件独家报道，关注伤亡数字和国际社会反应。' },
 ]
 
-export const SIM_INTERACTIONS = [
-  { id: 'SI1', source: 'AG1', target: 'AG2', type: 'strike',      label: '打击行动',   confidence: 0.88, timeWindow: 'T+24h', desc: '以色列空军计划对革命卫队设施实施精准打击，置信度高。' },
-  { id: 'SI2', source: 'AG2', target: 'AG1', type: 'retaliation', label: '无人机报复', confidence: 0.72, timeWindow: 'T+48h', desc: '革命卫队无人机群将对以色列境内目标发动报复打击。' },
-  { id: 'SI3', source: 'AG3', target: 'AG2', type: 'deterrence',  label: '舰队威慑',   confidence: 0.91, timeWindow: 'T+6h',  desc: 'CVN-77向海峡内侧机动，向伊朗释放明确战略威慑信号。' },
-  { id: 'SI4', source: 'AG3', target: 'AG1', type: 'intel',       label: '情报共享',   confidence: 0.85, timeWindow: 'T+2h',  desc: '美军向以色列分享实时目标情报，协调打击窗口。' },
-  { id: 'SI5', source: 'AG4', target: 'AG1', type: 'diplomatic',  label: '外交施压',   confidence: 0.55, timeWindow: 'T+12h', desc: '联合国安理会向以色列施压要求暂停军事行动。' },
-  { id: 'SI6', source: 'AG4', target: 'AG2', type: 'diplomatic',  label: '降级谈判',   confidence: 0.60, timeWindow: 'T+12h', desc: '安理会通过伊拉克渠道向伊朗传递降级意向。' },
-  { id: 'SI7', source: 'AG5', target: 'AG1', type: 'protest',     label: '外交抗议',   confidence: 0.95, timeWindow: 'T+1h',  desc: '伊拉克政府正式抗议以军使用其领空实施打击行动。' },
-  { id: 'SI8', source: 'AG6', target: 'AG2', type: 'inspection',  label: '核查要求',   confidence: 0.80, timeWindow: 'T+48h', desc: 'IAEA要求紧急核查伊朗浓缩铀设施是否受到打击影响。' },
-]
-
-export const SIM_PHASES = [
-  { id: 0, label: '初始化',   desc: '加载信实链种子数据' },
-  { id: 1, label: '环境搭建', desc: '构建行为方知识图谱' },
-  { id: 2, label: '模拟运行', desc: '多Agent博弈推演中' },
-  { id: 3, label: '报告生成', desc: '态势预测已输出' },
+// 3轮模拟，每轮各角色生成虚拟节点（dashed，代表预测的未来行动）
+export const SIM_ROUNDS = [
+  {
+    round: 1, label: '即时反应', timeOffset: 'T+0~2h',
+    desc: '各方收到打击消息后的第一波行动',
+    nodes: [
+      { id: 'VN1_1', agentId: 'AG1', label: '五角大楼启动危机评估',
+        desc: '"任务效果超出预期。建议保持克制，不主动升级。派遣驱逐舰至波斯湾出口释放威慑信号。"', type: 'assessment' },
+      { id: 'VN1_2', agentId: 'AG3', label: '飞行员提交任务报告',
+        desc: '"所有目标命中，无损失。北翼完全摧毁，南翼部分损毁。全程未遭遇防空拦截，已安全返航。"', type: 'report' },
+      { id: 'VN1_3', agentId: 'AG4', label: '伊朗军方召开紧急战情室',
+        desc: '"立即评估损失，激活报复预案B。不公开承认遭受打击，通过代理渠道传递明确警告信号。"', type: 'command' },
+      { id: 'VN1_4', agentId: 'AG5', label: '现场损毁评估完成',
+        desc: '"北翼完全摧毁，12名研究人员伤亡，地下设施入口被掩埋。救援受阻，需24h清理完毕。"', type: 'report' },
+      { id: 'VN1_5', agentId: 'AG7', label: '情报机构卫星复查',
+        desc: '"热成像确认3处爆炸中心，倒塌率约70%。核材料储存区初步判断未受影响。"', type: 'intel' },
+      { id: 'VN1_6', agentId: 'AG8', label: '媒体首波报道发布',
+        desc: '"目击者报告伊斯法罕附近多次爆炸。伊朗官方暂无回应，以色列军方拒绝置评。"', type: 'media' },
+    ],
+    edges: [
+      { id: 'VE1_1', source: 'AG1', target: 'VN1_1', virtual: true },
+      { id: 'VE1_2', source: 'AG3', target: 'VN1_2', virtual: true },
+      { id: 'VE1_3', source: 'AG4', target: 'VN1_3', virtual: true },
+      { id: 'VE1_4', source: 'AG5', target: 'VN1_4', virtual: true },
+      { id: 'VE1_5', source: 'AG7', target: 'VN1_5', virtual: true },
+      { id: 'VE1_6', source: 'AG8', target: 'VN1_6', virtual: true },
+    ],
+  },
+  {
+    round: 2, label: '次级响应', timeOffset: 'T+2~12h',
+    desc: '基于第一波反应的连锁行动',
+    nodes: [
+      { id: 'VN2_1', agentId: 'AG1', label: '美军戒备等级升级',
+        desc: '"CVN-77航母战斗群前出至霍尔木兹海峡，驻伊拉克美军提升至DEFCON 3级战备。"', type: 'command' },
+      { id: 'VN2_2', agentId: 'AG2', label: '基地人员撤离协调',
+        desc: '"鉴于报复威胁，前线人员轮换方案启动，关键设施进入加固状态，24h战备值班制。"', type: 'action' },
+      { id: 'VN2_3', agentId: 'AG4', label: '最高领袖批准报复预案',
+        desc: '"批准代理人骚扰方案：控制规模，展示意志，严禁引发全面战争。"', type: 'command' },
+      { id: 'VN2_4', agentId: 'AG6', label: '防空系统紧急升级方案',
+        desc: '"飞行路径利用西北走廊雷达盲区。建议72h内完成3个机动雷达站前沿部署。"', type: 'defense' },
+      { id: 'VN2_5', agentId: 'AG7', label: '伊朗反应预测报告',
+        desc: '"预测：70%代理人骚扰，20%无人机直接报复，10%外交降级。置信度 0.82。"', type: 'intel' },
+      { id: 'VN2_6', agentId: 'AG8', label: '国际舆论全面发酵',
+        desc: '"多国召见大使，联合国要求紧急磋商。油价涨3.2%，黄金突破2400，全球市场震荡。"', type: 'media' },
+    ],
+    edges: [
+      { id: 'VE2_1', source: 'VN1_1', target: 'VN2_1', virtual: true },
+      { id: 'VE2_2', source: 'VN2_1', target: 'VN2_2', virtual: true },
+      { id: 'VE2_3', source: 'VN1_3', target: 'VN2_3', virtual: true },
+      { id: 'VE2_4', source: 'VN1_4', target: 'VN2_4', virtual: true },
+      { id: 'VE2_5', source: 'VN1_5', target: 'VN2_5', virtual: true },
+      { id: 'VE2_6', source: 'VN1_6', target: 'VN2_6', virtual: true },
+    ],
+  },
+  {
+    round: 3, label: '态势收敛', timeOffset: 'T+12~72h',
+    desc: '多路径预测：升级 / 降级 / 僵持',
+    nodes: [
+      { id: 'VN3_1', agentId: 'AG4', label: '代理人骚扰行动',
+        desc: '"真主党向以北部城镇发射火箭弹，伊拉克民兵袭击美军基地，报复意志展示但规模可控。"', type: 'escalation', probability: 0.70 },
+      { id: 'VN3_2', agentId: 'AG1', label: '美国外交强力介入',
+        desc: '"国务卿致电以国防部长要求暂停行动，向伊朗传递降级信号，避免代理人冲突升级为区域战争。"', type: 'diplomacy', probability: 0.65 },
+      { id: 'VN3_3', agentId: 'AG4', label: '伊朗无人机直接报复',
+        desc: '"革命卫队向以色列南部发射无人机群，铁穹拦截率约85%，造成有限损失。"', type: 'escalation', probability: 0.25 },
+      { id: 'VN3_4', agentId: 'AG7', label: '伊朗核计划加速',
+        desc: '"卫星显示纳坦兹设施活动增加，研判伊朗将以核计划加速作为战略报复手段。置信度 0.80。"', type: 'intel', probability: 0.80 },
+    ],
+    edges: [
+      { id: 'VE3_1', source: 'VN2_3', target: 'VN3_1', virtual: true },
+      { id: 'VE3_2', source: 'VN2_6', target: 'VN3_2', virtual: true },
+      { id: 'VE3_3', source: 'VN2_3', target: 'VN3_3', virtual: true },
+      { id: 'VE3_4', source: 'VN2_5', target: 'VN3_4', virtual: true },
+    ],
+  },
 ]
 
 export const SIM_LOGS = [
-  { time: '06:12:04', level: 'info',  text: '载入信实链验证节点 13 条，卫星锚定 7 条' },
-  { time: '06:12:05', level: 'info',  text: '构建行为方知识图谱：识别 6 个实体，8 组交互关系' },
-  { time: '06:12:07', level: 'warn',  text: 'AG2 [伊朗革命卫队] 威胁评估升级：0.65 → 0.78' },
-  { time: '06:12:09', level: 'info',  text: 'AG3 [美国中央司令部] 释放威慑信号，AG2 响应概率 91%' },
-  { time: '06:12:11', level: 'info',  text: 'AG1 [以色列空军] 打击窗口计算完成：T+24h ±2h' },
-  { time: '06:12:14', level: 'warn',  text: 'AG4 [联合国安理会] 外交干预效果预测：有效性 55%' },
-  { time: '06:12:16', level: 'info',  text: '模拟轮次 1/5 完成，整体置信度 0.74' },
-  { time: '06:12:19', level: 'info',  text: '模拟轮次 2/5 完成，AG2 报复概率收敛至 0.72' },
-  { time: '06:12:22', level: 'error', text: 'AG5 [伊拉克政府] 行为模型数据不足，置信度降级' },
-  { time: '06:12:25', level: 'info',  text: '模拟轮次 3/5 完成，态势熵值趋于稳定' },
-  { time: '06:12:28', level: 'info',  text: '模拟轮次 4/5 完成，报复/降级双路径并存' },
-  { time: '06:12:31', level: 'info',  text: '模拟轮次 5/5 完成，生成最终预测报告' },
-  { time: '06:12:33', level: 'info',  text: '世界模拟完成 · 整体置信度 0.79 · 主路径：有限冲突后降级' },
+  { time: '06:12:04', level: 'info',  round: 0, text: '载入信实链种子事件：F-16打击行动 [已验证] + 2个关联实体' },
+  { time: '06:12:06', level: 'info',  round: 0, text: '初始化模拟角色：8个行为方就绪 | 知识图谱节点: 11' },
+  { time: '06:12:08', level: 'info',  round: 1, text: '[轮次 1] AG1 [五角大楼] → 生成虚拟节点：危机评估会议' },
+  { time: '06:12:09', level: 'info',  round: 1, text: '[轮次 1] AG3 [飞行员] → 生成虚拟节点：任务报告' },
+  { time: '06:12:10', level: 'warn',  round: 1, text: '[轮次 1] AG4 [伊朗军方] → 生成虚拟节点：紧急战情室 ↑威胁' },
+  { time: '06:12:11', level: 'info',  round: 1, text: '[轮次 1] AG5 [现场指挥官] → 生成虚拟节点：损毁评估' },
+  { time: '06:12:12', level: 'info',  round: 1, text: '[轮次 1] AG7 [情报机构] → 生成虚拟节点：卫星复查' },
+  { time: '06:12:13', level: 'info',  round: 1, text: '[轮次 1] AG8 [媒体] → 生成虚拟节点：首波报道' },
+  { time: '06:12:14', level: 'info',  round: 1, text: '轮次 1 完成 · +6 虚拟节点 · 图谱规模: 17 节点' },
+  { time: '06:12:17', level: 'info',  round: 2, text: '[轮次 2] AG1 [五角大楼] → 生成虚拟节点：戒备升级' },
+  { time: '06:12:18', level: 'warn',  round: 2, text: '[轮次 2] AG4 [伊朗军方] → 生成虚拟节点：报复预案批准 ↑高风险' },
+  { time: '06:12:19', level: 'info',  round: 2, text: '[轮次 2] AG2 [基地指挥官] → 生成虚拟节点：人员撤离' },
+  { time: '06:12:20', level: 'info',  round: 2, text: '[轮次 2] AG6 [防空阵地] → 生成虚拟节点：防空升级方案' },
+  { time: '06:12:22', level: 'info',  round: 2, text: '[轮次 2] AG7 [情报机构] → 生成虚拟节点：伊朗反应预测 P=0.82' },
+  { time: '06:12:23', level: 'info',  round: 2, text: '[轮次 2] AG8 [媒体] → 生成虚拟节点：国际舆论发酵' },
+  { time: '06:12:24', level: 'info',  round: 2, text: '轮次 2 完成 · +6 虚拟节点 · 图谱规模: 23 节点' },
+  { time: '06:12:28', level: 'warn',  round: 3, text: '[轮次 3] AG4 [伊朗军方] → 代理人骚扰 (P=0.70)' },
+  { time: '06:12:29', level: 'info',  round: 3, text: '[轮次 3] AG1 [五角大楼] → 外交介入 (P=0.65)' },
+  { time: '06:12:30', level: 'error', round: 3, text: '[轮次 3] AG4 [伊朗军方] → 无人机直接报复 (P=0.25) 升级路径!' },
+  { time: '06:12:31', level: 'warn',  round: 3, text: '[轮次 3] AG7 [情报机构] → 核计划加速 (P=0.80)' },
+  { time: '06:12:33', level: 'info',  round: 3, text: '轮次 3 完成 · +4 虚拟节点 · 图谱规模: 27 节点' },
+  { time: '06:12:35', level: 'info',  round: 3, text: '世界模拟完成 · 主路径：代理人冲突+外交降级并行 · 置信度 0.76' },
 ]
 
 // ── 开源情报事件（OSINT）────────────────────────────────────────
