@@ -291,6 +291,63 @@ export const CHAINS = [
   { id: 'C', name: '基地扩建链', description: '跑道延伸施工 → 新型雷达疑似部署' },
 ]
 
+// ── 世界模拟数据 ────────────────────────────────────────────────
+// 以信实链验证事件为种子，构建行为方网络，推演未来地缘态势
+export const SIM_AGENTS = [
+  { id: 'AG1', name: '以色列空军',     role: '攻势方', type: 'military',      status: 'active',      threat: 0.92,
+    summary: 'F-16编队保持高战备，已执行3次打击任务，情报显示第4次任务窗口即将开启。',
+    actions: ['侦察任务 T+2h', '备战状态 T+6h', '可能打击 T+24h'] },
+  { id: 'AG2', name: '伊朗革命卫队',   role: '防御方', type: 'military',      status: 'alert',       threat: 0.78,
+    summary: '侦测到以军雷达信号增强，岸基导弹阵地已激活，无人机部队处于一级战备。',
+    actions: ['导弹就位 T+1h', '无人机备战 T+3h', '报复窗口 T+24h'] },
+  { id: 'AG3', name: '美国中央司令部', role: '监视方', type: 'military',      status: 'monitoring',  threat: 0.45,
+    summary: 'CVN-77编队位于霍尔木兹海峡入口，电子侦察机24小时在轨，向双方释放威慑信号。',
+    actions: ['舰队定位 持续', '情报共享 T+2h', '威慑表态 T+6h'] },
+  { id: 'AG4', name: '联合国安理会',   role: '调解方', type: 'diplomatic',    status: 'negotiating', threat: 0.08,
+    summary: '紧急召开闭门会议，起草停火决议草案，向各方施压要求降级。',
+    actions: ['闭门会议 进行中', '决议草案 T+12h', '投票表决 T+24h'] },
+  { id: 'AG5', name: '伊拉克政府',     role: '中间方', type: 'government',    status: 'neutral',     threat: 0.30,
+    summary: '领土内发生未经授权军事行动，向各方发出外交抗议，要求撤军并赔偿。',
+    actions: ['外交抗议 T+1h', '边境管控 T+3h', '外交斡旋 T+12h'] },
+  { id: 'AG6', name: '国际原子能机构', role: '核查方', type: 'international', status: 'active',      threat: 0.05,
+    summary: '要求对核设施进行紧急视察，已发出正式通知，等待伊方回复。',
+    actions: ['核查请求 已发出', '视察窗口 T+48h', '核查报告 T+72h'] },
+]
+
+export const SIM_INTERACTIONS = [
+  { id: 'SI1', source: 'AG1', target: 'AG2', type: 'strike',      label: '打击行动',   confidence: 0.88, timeWindow: 'T+24h', desc: '以色列空军计划对革命卫队设施实施精准打击，置信度高。' },
+  { id: 'SI2', source: 'AG2', target: 'AG1', type: 'retaliation', label: '无人机报复', confidence: 0.72, timeWindow: 'T+48h', desc: '革命卫队无人机群将对以色列境内目标发动报复打击。' },
+  { id: 'SI3', source: 'AG3', target: 'AG2', type: 'deterrence',  label: '舰队威慑',   confidence: 0.91, timeWindow: 'T+6h',  desc: 'CVN-77向海峡内侧机动，向伊朗释放明确战略威慑信号。' },
+  { id: 'SI4', source: 'AG3', target: 'AG1', type: 'intel',       label: '情报共享',   confidence: 0.85, timeWindow: 'T+2h',  desc: '美军向以色列分享实时目标情报，协调打击窗口。' },
+  { id: 'SI5', source: 'AG4', target: 'AG1', type: 'diplomatic',  label: '外交施压',   confidence: 0.55, timeWindow: 'T+12h', desc: '联合国安理会向以色列施压要求暂停军事行动。' },
+  { id: 'SI6', source: 'AG4', target: 'AG2', type: 'diplomatic',  label: '降级谈判',   confidence: 0.60, timeWindow: 'T+12h', desc: '安理会通过伊拉克渠道向伊朗传递降级意向。' },
+  { id: 'SI7', source: 'AG5', target: 'AG1', type: 'protest',     label: '外交抗议',   confidence: 0.95, timeWindow: 'T+1h',  desc: '伊拉克政府正式抗议以军使用其领空实施打击行动。' },
+  { id: 'SI8', source: 'AG6', target: 'AG2', type: 'inspection',  label: '核查要求',   confidence: 0.80, timeWindow: 'T+48h', desc: 'IAEA要求紧急核查伊朗浓缩铀设施是否受到打击影响。' },
+]
+
+export const SIM_PHASES = [
+  { id: 0, label: '初始化',   desc: '加载信实链种子数据' },
+  { id: 1, label: '环境搭建', desc: '构建行为方知识图谱' },
+  { id: 2, label: '模拟运行', desc: '多Agent博弈推演中' },
+  { id: 3, label: '报告生成', desc: '态势预测已输出' },
+]
+
+export const SIM_LOGS = [
+  { time: '06:12:04', level: 'info',  text: '载入信实链验证节点 13 条，卫星锚定 7 条' },
+  { time: '06:12:05', level: 'info',  text: '构建行为方知识图谱：识别 6 个实体，8 组交互关系' },
+  { time: '06:12:07', level: 'warn',  text: 'AG2 [伊朗革命卫队] 威胁评估升级：0.65 → 0.78' },
+  { time: '06:12:09', level: 'info',  text: 'AG3 [美国中央司令部] 释放威慑信号，AG2 响应概率 91%' },
+  { time: '06:12:11', level: 'info',  text: 'AG1 [以色列空军] 打击窗口计算完成：T+24h ±2h' },
+  { time: '06:12:14', level: 'warn',  text: 'AG4 [联合国安理会] 外交干预效果预测：有效性 55%' },
+  { time: '06:12:16', level: 'info',  text: '模拟轮次 1/5 完成，整体置信度 0.74' },
+  { time: '06:12:19', level: 'info',  text: '模拟轮次 2/5 完成，AG2 报复概率收敛至 0.72' },
+  { time: '06:12:22', level: 'error', text: 'AG5 [伊拉克政府] 行为模型数据不足，置信度降级' },
+  { time: '06:12:25', level: 'info',  text: '模拟轮次 3/5 完成，态势熵值趋于稳定' },
+  { time: '06:12:28', level: 'info',  text: '模拟轮次 4/5 完成，报复/降级双路径并存' },
+  { time: '06:12:31', level: 'info',  text: '模拟轮次 5/5 完成，生成最终预测报告' },
+  { time: '06:12:33', level: 'info',  text: '世界模拟完成 · 整体置信度 0.79 · 主路径：有限冲突后降级' },
+]
+
 // ── 开源情报事件（OSINT）────────────────────────────────────────
 // 置信度由大模型结合信实链数据库综合评分，坐标为模糊坐标（低精度）
 export const OSINT_EVENTS = [

@@ -2,11 +2,13 @@ import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
 import EventChain from './pages/EventChain'
 import SitePackage from './pages/SitePackage'
 import Report from './pages/Report'
+import WorldSim from './pages/WorldSim'
 
 const NAV_ITEMS = [
-  { path: '/',        label: '态势分析', sub: 'SITUATION MAP',  icon: '◎' },
-  { path: '/chain',   label: '信实链',   sub: 'EVENT CHAIN',    icon: '⬡' },
-  { path: '/report',  label: '智能预测', sub: 'INTEL REPORT',   icon: '▣' },
+  { path: '/',          label: '态势分析', sub: 'SITUATION MAP',  icon: '◎' },
+  { path: '/chain',     label: '信实链',   sub: 'EVENT CHAIN',    icon: '⬡' },
+  { path: '/simulate',  label: '世界模拟', sub: 'WORLD SIM',      icon: '◈' },
+  { path: '/report',    label: '智能预测', sub: 'INTEL REPORT',   icon: '▣' },
 ]
 
 function Nav() {
@@ -82,6 +84,7 @@ export default function App() {
           <Route path="/"            element={<SitePackage />} />
           <Route path="/site/:siteId" element={<SitePackage />} />
           <Route path="/chain"       element={<EventChain />} />
+          <Route path="/simulate"    element={<WorldSim />} />
           <Route path="/report"      element={<Report />} />
         </Routes>
       </div>
