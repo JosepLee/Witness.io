@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 const COPY = {
   tagline: '眼见为实',
   sub: 'WITNESS · REMOTE SENSING INTELLIGENCE PLATFORM',
-  desc: '依托多轨高分辨率遥感星座，以小时级全球重访能力\n对任意地表目标实施独立验证，用卫星影像说话',
+  desc: '144颗多轨高分遥感卫星，小时级重访全球任意目标\n卫星影像交叉验证 · 构建不可篡改的信实情报库\n从已知事实出发，大模型推演未来72小时地缘走向',
   features: [
     { icon: '◎', zh: '态势分析', en: 'SITUATION MAP',  desc: '实时卫星影像叠加' },
     { icon: '⬡', zh: '信实链',   en: 'EVENT CHAIN',   desc: '多源交叉验证' },
@@ -11,7 +11,7 @@ const COPY = {
     { icon: '▣', zh: '智能预测', en: 'INTEL REPORT',  desc: '大模型情报合成' },
   ],
   stats: [
-    { value: '48',   unit: '颗',   label: '在轨卫星' },
+    { value: '144',  unit: '颗',   label: '在轨卫星' },
     { value: '1.2h', unit: '',     label: '全球重访周期' },
     { value: '0.3m', unit: '分辨率', label: '最高地面分辨率' },
     { value: '99.1', unit: '%',    label: '验证置信度' },
@@ -137,8 +137,10 @@ export default function Intro({ onEnter }) {
         ctx.stroke()
       }
       for (let lon = 0; lon < 360; lon += 45) {
+        const rx = Math.abs(earthR * Math.sin(toRad(lon)))
+        if (rx < 0.5) continue
         ctx.beginPath()
-        ctx.ellipse(cx, cy, earthR * Math.sin(toRad(lon)), earthR, 0, 0, Math.PI * 2)
+        ctx.ellipse(cx, cy, rx, earthR, 0, 0, Math.PI * 2)
         ctx.stroke()
       }
       ctx.restore()
@@ -294,22 +296,26 @@ export default function Intro({ onEnter }) {
         {/* Tagline */}
         <div style={{
           fontFamily: 'var(--font-display)', fontWeight: 800,
-          fontSize: '48px', color: '#f59e0b',
-          letterSpacing: '0.12em',
-          textShadow: '0 0 40px rgba(245,158,11,0.4)',
-          marginBottom: '8px',
-          lineHeight: 1.1,
+          fontSize: '64px', color: '#f59e0b',
+          letterSpacing: '0.16em',
+          textShadow: '0 0 60px rgba(245,158,11,0.55), 0 0 120px rgba(245,158,11,0.2)',
+          marginBottom: '10px',
+          lineHeight: 1,
         }}>
           {COPY.tagline}
         </div>
-        <div style={{ fontSize: '10px', color: '#334155', letterSpacing: '0.2em', marginBottom: '24px' }}>
+        <div style={{
+          fontSize: '11px', color: '#475569', letterSpacing: '0.22em', marginBottom: '28px',
+          borderTop: '1px solid #1a2d45', borderBottom: '1px solid #1a2d45',
+          padding: '6px 0',
+        }}>
           {COPY.sub}
         </div>
 
         {/* Description */}
         <div style={{
-          fontSize: '13px', color: '#64748b', lineHeight: 1.8,
-          letterSpacing: '0.04em', marginBottom: '32px',
+          fontSize: '13px', color: '#94a3b8', lineHeight: 2,
+          letterSpacing: '0.05em', marginBottom: '32px',
           whiteSpace: 'pre-line',
         }}>
           {COPY.desc}
