@@ -737,6 +737,13 @@ export const CHAINS = [
 // 推演各方行动，生成的虚拟节点（dashed）代表预测的未来行动/后果。
 
 // 种子节点（来自信实链，已验证，实线）
+export const SIM_LOGS = [
+  '06:12 F-16 编队离场',
+  '06:28 进入侦察盘旋区',
+  '06:41 卫星确认目标活动增强',
+  '06:55 目标区出现异常热源',
+]
+
 export const SIM_SEED_NODES = [
   { id: 'SN0', label: 'F-16 打击行动', sublabel: '信实链节点 #7 · 已验证',
     type: 'seed_event',
@@ -911,5 +918,29 @@ export const NEWS_MARKERS = [
     source: '卫星时序影像',
     content: '伊拉克某空军基地跑道扩建工程已完成50%。新增的北向跑道延伸可允许重型轰炸机起降。',
     type: 'infrastructure',
+  },
+]
+
+export const OSINT_EVENTS = [
+  {
+    id: 1,
+    title: '目标区出现异常车辆活动',
+    time: '2026-03-12 05:10',
+    source: 'OSINT',
+    level: 'medium',
+  },
+  {
+    id: 2,
+    title: '社媒图像显示设施周边热源增加',
+    time: '2026-03-12 05:26',
+    source: 'OSINT',
+    level: 'high',
+  },
+  {
+    id: 3,
+    title: '公开频道出现疑似飞行准备信息',
+    time: '2026-03-12 05:32',
+    source: 'OSINT',
+    level: 'medium',
   },
 ]

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { SITES, EVENTS, NEWS_MARKERS } from '../../data/mockData'
+import { SITES, EVENTS, NEWS_MARKERS, OSINT_EVENTS } from '../../data/mockData'
 
-// ── 状态颜色 ─────────────────────────────────────────────────
+// ── 状态颜色 ───────────────────────────────S──────────────────
 function statusColor(status) {
   if (status === 'operational') return '#22c55e'
   if (status === 'damaged')     return '#f59e0b'
@@ -404,6 +404,9 @@ function NewsModal({ news, onClose }) {
           📍 {news.lat.toFixed(2)}° N, {news.lng.toFixed(2)}° E
         </div>
       </div>
+    </div>
+  )
+}
 // ── 新组件：OsintCard（地图浮层卡片）────────────────────────
 function OsintCard({ event, onClose }) {
   if (!event) return null
