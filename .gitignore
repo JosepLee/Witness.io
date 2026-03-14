@@ -3,3 +3,4 @@ dist/
 .openclaw/
 .omc/
 *.local
+/.history

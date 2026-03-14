@@ -90,7 +90,8 @@ function BaseList({ sites, selectedId, onSelect }) {
       {/* 底部数据流提示 */}
       <div style={{ padding: '10px 14px', borderTop: '1px solid #1a2d45', fontSize: '9px', color: '#1e3a5f', lineHeight: 1.6 }}>
         ◉ 卫星影像 → 事实基础层<br/>
-        点位数据锚定信实链节点
+        点位数据锚定信实链节点<br/>
+        <span style={{ color: '#334155' }}>◈ {OSINT_EVENTS.length} 条开源情报待验证</span>
       </div>
     </div>
   )
@@ -403,12 +404,61 @@ function NewsModal({ news, onClose }) {
           📍 {news.lat.toFixed(2)}° N, {news.lng.toFixed(2)}° E
         </div>
       </div>
+// ── 新组件：OsintCard（地图浮层卡片）────────────────────────
+function OsintCard({ event, onClose }) {
+  if (!event) return null
+  const confColor = event.confidence >= 0.7 ? '#22c55e'
+    : event.confidence >= 0.45 ? '#f59e0b' : '#ef4444'
+  const sourceTypeLabel = {
+    social: '社交媒体', news: '新闻媒体',
+    official: '官方声明', anonymous: '匿名信源',
+  }[event.sourceType] || 'OSINT'
+  return (
+    <div style={{
+      position: 'absolute', top: '14px', left: '50%',
+      transform: 'translateX(-50%)',
+      width: '320px', zIndex: 1100,
+      background: '#080f1e',
+      border: `1px solid ${confColor}66`,
+      borderRadius: '4px',
+      padding: '16px',
+      boxShadow: `0 0 24px ${confColor}22`,
+      pointerEvents: 'auto',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+        <div>
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '4px' }}>
+            <span style={{ fontSize: '9px', padding: '1px 6px', borderRadius: '2px', background: '#f59e0b22', border: '1px solid #f59e0b44', color: '#f59e0b' }}>OSINT</span>
+            <span style={{ fontSize: '9px', padding: '1px 6px', borderRadius: '2px', background: '#1e3a5f', border: '1px solid #1a2d45', color: '#64748b' }}>链 {event.relatedChain}</span>
+            <span style={{ fontSize: '9px', padding: '1px 6px', borderRadius: '2px', background: '#0d1a2e', color: '#334155' }}>{sourceTypeLabel}</span>
+          </div>
+          <div style={{ fontSize: '12px', fontWeight: 700, color: '#e2e8f0', lineHeight: 1.3 }}>{event.title}</div>
+        </div>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '16px', flexShrink: 0, marginLeft: '8px' }}>×</button>
+      </div>
+      <div style={{ fontSize: '10px', color: '#94a3b8', lineHeight: 1.6, marginBottom: '10px' }}>{event.content}</div>
+      <div style={{ marginBottom: '10px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+          <span style={{ fontSize: '9px', color: '#64748b' }}>LLM 综合置信度</span>
+          <span style={{ fontSize: '11px', fontWeight: 700, color: confColor, fontFamily: 'var(--font-display)' }}>{(event.confidence * 100).toFixed(0)}%</span>
+        </div>
+        <div style={{ height: '3px', background: '#0d1a2e', borderRadius: '2px' }}>
+          <div style={{ width: `${event.confidence * 100}%`, height: '100%', background: confColor, borderRadius: '2px', transition: 'width 0.4s' }} />
+        </div>
+      </div>
+      <div style={{ padding: '8px 10px', background: '#0d1a2e', borderRadius: '3px', fontSize: '9px', color: '#64748b', lineHeight: 1.6, marginBottom: '10px', borderLeft: `2px solid ${confColor}44` }}>
+        <span style={{ color: '#334155' }}>AI 分析：</span>{event.llmAnalysis}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#334155' }}>
+        <span>{event.source}</span>
+        <span>{event.date}</span>
+      </div>
     </div>
   )
 }
 
 // ── 地图组件 ─────────────────────────────────────────────────
-function SiteMap({ sites, selectedId, onSelect }) {
+function SiteMap({ sites, selectedId, onSelect, osintEvents, onOsintSelect }) {
   const mapRef = useRef(null)
   const mapInstance = useRef(null)
   const markersRef = useRef({})
@@ -481,6 +531,32 @@ function SiteMap({ sites, selectedId, onSelect }) {
         newsMarkersRef.current[newsItem.id] = marker
       })
 
+      // OSINT 事件标记
+      osintEvents.forEach(ev => {
+        const conf = ev.confidence
+        const c = conf >= 0.7 ? '#22c55e' : conf >= 0.45 ? '#f59e0b' : '#ef4444'
+        const osintIcon = L.divIcon({
+          className: '',
+          html: `<div style="
+            width:16px;height:16px;
+            border-radius:50%;
+            background:${c}22;
+            border:1.5px dashed ${c}88;
+            display:flex;align-items:center;justify-content:center;
+            font-size:8px;color:${c};
+            font-family:JetBrains Mono;font-weight:700;
+            cursor:pointer;
+          ">${Math.round(conf * 100)}</div>`,
+          iconSize: [16, 16], iconAnchor: [8, 8],
+        })
+        L.marker([ev.lat, ev.lng], { icon: osintIcon })
+          .addTo(map)
+          .on('click', (e) => { L.DomEvent.stopPropagation(e); onOsintSelect(ev) })
+      })
+
+      // 点击地图空白处关闭 OSINT 卡片
+      map.on('click', () => onOsintSelect(null))
+
       mapInstance.current = map
     })
   }, [])
@@ -507,6 +583,7 @@ export default function SitePackage() {
   const navigate = useNavigate()
   const [selectedId, setSelectedId] = useState(siteId || SITES[0].id)
   const [imgIdx, setImgIdx] = useState(0)
+  const [selectedOsint, setSelectedOsint] = useState(null)
 
   const site = SITES.find(s => s.id === selectedId) || SITES[0]
   const color = scoreColor(site.combatScore)
@@ -522,7 +599,14 @@ export default function SitePackage() {
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
       {/* 地图 */}
       <div style={{ flex: 1, position: 'relative' }}>
-        <SiteMap sites={SITES} selectedId={selectedId} onSelect={id => { setSelectedId(id); setImgIdx(0) }} />
+        <SiteMap
+          sites={SITES}
+          selectedId={selectedId}
+          onSelect={id => { setSelectedId(id); setImgIdx(0); setSelectedOsint(null) }}
+          osintEvents={OSINT_EVENTS}
+          onOsintSelect={ev => setSelectedOsint(ev)}
+        />
+        <OsintCard event={selectedOsint} onClose={() => setSelectedOsint(null)} />
 
         {/* 图例 */}
         <div style={{
