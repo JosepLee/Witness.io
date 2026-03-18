@@ -4,9 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>WITNESS · 眼见为实</title>
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
     <style>
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
       :root {
@@ -23,14 +24,30 @@
         --font-mono: 'JetBrains Mono', monospace;
         --font-display: 'Syne', sans-serif;
       }
-      html, body, #root { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font-mono); }
-      ::-webkit-scrollbar { width: 4px; } 
+
+      html, body, #root {
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font-mono);
+      }
+
+      ::-webkit-scrollbar { width: 4px; }
       ::-webkit-scrollbar-track { background: var(--bg); }
       ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
     </style>
   </head>
   <body>
     <div id="root"></div>
+
+    <script>
+      window.BASE_MAP_ADDRESS = '124.70.78.85'
+      window.BASE_MAP_PORT = '9998'
+
+      // 开发环境建议走 vite 代理
+      window.__USE_BASEMAP_PROXY__ = true
+    </script>
+
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

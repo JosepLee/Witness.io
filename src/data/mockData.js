@@ -612,6 +612,104 @@ export const REPORT = {
   },
 };
 
+export const SITE_EVENTS = {
+  base: {
+    title: "塔尔阿夫尔基地",
+    events: [
+      {
+        id: "base-1",
+        title: "编队离场准备",
+        time: "2026-03-12 05:10",
+        level: "medium",
+        summary: "基地跑道周边出现连续车辆调度活动，疑似进入出击准备阶段。",
+        source: "信实链节点 + 轨迹记录",
+        suggestion: "建议持续关注离场窗口与后续航迹变化。",
+      },
+      {
+        id: "base-2",
+        title: "燃料补给异常增强",
+        time: "2026-03-12 05:18",
+        level: "high",
+        summary: "补给区热源短时增强，结合地面活动记录，可能对应飞行前补给操作。",
+        source: "卫星热源复核",
+        suggestion: "建议提前触发下一轮地面活动验证任务。",
+      },
+    ],
+  },
+
+  recon: {
+    title: "侦察前进基地",
+    events: [
+      {
+        id: "recon-1",
+        title: "盘旋轨迹聚集",
+        time: "2026-03-12 05:42",
+        level: "medium",
+        summary: "侦察航迹在该区域形成重复轨迹，说明此点为阶段性中继与观察节点。",
+        source: "轨迹聚合分析",
+        suggestion: "建议标记为重点侦察中继区。",
+      },
+      {
+        id: "recon-2",
+        title: "短时停留异常",
+        time: "2026-03-12 05:47",
+        level: "low",
+        summary: "盘旋半径缩小且停留时间延长，表明该区域在行动链中权重上升。",
+        source: "轨迹时序分析",
+        suggestion: "建议提高后续预测推理中的路径权重。",
+      },
+    ],
+  },
+
+  target: {
+    title: "胡拉玛目标区",
+    events: [
+      {
+        id: "target-1",
+        title: "目标区热源增强",
+        time: "2026-03-12 05:55",
+        level: "high",
+        summary: "目标区短时出现热源增强与活动波动，存在明显异常。",
+        source: "卫星影像验证",
+        suggestion: "建议提高该区域在当前行动链中的可信权重。",
+      },
+      {
+        id: "target-2",
+        title: "打击痕迹确认",
+        time: "2026-03-12 06:02",
+        level: "high",
+        summary: "目标区出现疑似受损痕迹，与前序航迹和时序信号相吻合。",
+        source: "卫星复核 + OSINT 辅证",
+        suggestion: "建议进入后续结果验证阶段。",
+      },
+    ],
+  },
+
+  predict: {
+    title: "设施B（预测）",
+    events: [
+      {
+        id: "predict-1",
+        title: "设施B风险升高",
+        time: "2026-03-13 05:30",
+        level: "high",
+        summary: "多源证据叠加后，设施B成为下一轮行动的最高优先级候选目标。",
+        source: "Agent 推理输出",
+        suggestion: "建议优先安排该点卫星复核任务。",
+      },
+      {
+        id: "predict-2",
+        title: "预测时间窗收缩",
+        time: "2026-03-13 05:46",
+        level: "medium",
+        summary: "预测窗口由宽时间段收缩到高置信区间，说明回流验证结果正在生效。",
+        source: "验证回流后重新推理",
+        suggestion: "建议同步更新行动预警窗口。",
+      },
+    ],
+  },
+}
+
 // ── 链级加权可信度计算 ────────────────────────────────────────
 export function chainScore(chainId) {
   const nodes = EVENTS.filter((e) => e.chain === chainId);
@@ -925,22 +1023,49 @@ export const OSINT_EVENTS = [
   {
     id: 1,
     title: '目标区出现异常车辆活动',
-    time: '2026-03-12 05:10',
+    date: '2026-03-12 05:10',
     source: 'OSINT',
     level: 'medium',
+
+    lat: 35.48,
+    lng: 45.08,
+
+    confidence: 0.58,
+    sourceType: 'social',
+    relatedChain: 'A',
+    content: '多条公开社媒图像与短视频显示，目标区西南侧道路出现密集车辆进出，时间集中在行动窗口前后，疑似与疏散或保障活动相关。',
+    llmAnalysis: '车辆活动与既有链上节点时序基本吻合，但仍缺乏高分辨率卫星复核，当前仅可作为中等强度辅证。',
   },
   {
     id: 2,
     title: '社媒图像显示设施周边热源增加',
-    time: '2026-03-12 05:26',
+    date: '2026-03-12 05:26',
     source: 'OSINT',
     level: 'high',
+
+    lat: 35.52,
+    lng: 45.12,
+
+    confidence: 0.76,
+    sourceType: 'news',
+    relatedChain: 'A',
+    content: '公开传播的现场图像与二次转发内容显示，设施周边在短时间内出现异常热源增强，位置与已知敏感设施外围区域接近。',
+    llmAnalysis: '热源异常与目标区高风险时段高度重叠，且与信实链中“目标区活动增强”节点形成互相印证，因此置信度较高。',
   },
   {
     id: 3,
     title: '公开频道出现疑似飞行准备信息',
-    time: '2026-03-12 05:32',
+    date: '2026-03-12 05:32',
     source: 'OSINT',
     level: 'medium',
+
+    lat: 36.66,
+    lng: 42.43,
+
+    confidence: 0.49,
+    sourceType: 'anonymous',
+    relatedChain: 'A',
+    content: '多个公开频道出现关于起飞前地勤准备、滑行排序与短时封控的讨论片段，但原始来源分散，真实性尚需进一步交叉核实。',
+    llmAnalysis: '该信息与基地起飞准备窗口接近，但来源碎片化且存在重复转述，当前更适合作为早期预警信号，而非直接证据。',
   },
 ]
