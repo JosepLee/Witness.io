@@ -1015,27 +1015,6 @@ const TacticalDemo = memo(function TacticalDemo({
       pointHitMapRef.current = [];
 
       if (viewModeRef.current === "3d") {
-        const sky = ctx.createLinearGradient(0, 0, 0, viewport.height * 0.35);
-        sky.addColorStop(0, "rgba(14,165,233,0.08)");
-        sky.addColorStop(1, "rgba(4,8,16,0.00)");
-        ctx.fillStyle = sky;
-        ctx.fillRect(0, 0, viewport.width, viewport.height * 0.35);
-        ctx.save();
-        ctx.strokeStyle = "rgba(20,48,78,0.18)";
-        ctx.lineWidth = 1;
-        for (let x = 80; x < viewport.width; x += 80) {
-          ctx.beginPath();
-          ctx.moveTo(x, 0);
-          ctx.lineTo(x, viewport.height);
-          ctx.stroke();
-        }
-        for (let y = 70; y < viewport.height; y += 70) {
-          ctx.beginPath();
-          ctx.moveTo(0, y);
-          ctx.lineTo(viewport.width, y);
-          ctx.stroke();
-        }
-        ctx.restore();
         ctx.font = "11px JetBrains Mono";
         ctx.fillStyle = "#64748b";
         ctx.fillText("CESIUM GLOBE · NORTH IRAQ THEATER", 16, 22);
