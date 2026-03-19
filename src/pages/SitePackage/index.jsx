@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import "cesium/Build/Cesium/Widgets/widgets.css";
-import { THEATERS, EVENTS } from "../../data/mockData";
+import { EVENTS } from "../../data/mockData";
 
 // ── 颜色工具 ─────────────────────────────────────────────────
 const STATUS_COLOR = {
@@ -576,9 +576,9 @@ function LayerToggleButton({ open, onClick, layers }) {
 // ══════════════════════════════════════════════════════════════
 //  TheaterSwitcher
 // ══════════════════════════════════════════════════════════════
-function TheaterSwitcher({ currentId, onChange }) {
+function TheaterSwitcher({ currentId, onChange, theaters = [] }) {
   const [open, setOpen] = useState(false);
-  const current = THEATERS.find((t) => t.id === currentId) ?? THEATERS[0];
+  const current = theaters.find((t) => t.id === currentId) ?? theaters[0] ?? {};
 
   return (
     <div
@@ -675,7 +675,7 @@ function TheaterSwitcher({ currentId, onChange }) {
             animation: "dropDown 0.18s ease",
           }}
         >
-          {THEATERS.map((theater, idx) => {
+          {theaters.map((theater, idx) => {
             const isActive = theater.id === currentId;
             return (
               <button
@@ -733,7 +733,7 @@ function TheaterSwitcher({ currentId, onChange }) {
                 </div>
                 <div style={{ textAlign: "right" }}>
                   <div style={{ fontSize: 8, color: "#334155" }}>
-                    {theater.sites.length} 点位
+                    {theater.siteCount ?? "—"} 点位
                   </div>
                   {isActive && (
                     <div
@@ -771,7 +771,7 @@ function TheaterSwitcher({ currentId, onChange }) {
               letterSpacing: "0.08em",
             }}
           >
-            ◈ {THEATERS.length} 专题已载入
+            ◈ {theaters.length} 专题已载入
           </div>
         </div>
       )}
@@ -787,7 +787,7 @@ function TheaterSwitcher({ currentId, onChange }) {
 // ══════════════════════════════════════════════════════════════
 //  BaseList
 // ══════════════════════════════════════════════════════════════
-function BaseList({ sites, selectedId, onSelect, theaterId, onTheaterChange }) {
+function BaseList({ sites, selectedId, onSelect, theaterId, onTheaterChange, theaters = [] }) {
   const [filter, setFilter] = useState("all");
   const FILTERS = [
     ["all", "全部"],
@@ -800,7 +800,7 @@ function BaseList({ sites, selectedId, onSelect, theaterId, onTheaterChange }) {
   useEffect(() => {
     setFilter("all");
   }, [theaterId]);
-  const theater = THEATERS.find((t) => t.id === theaterId) ?? THEATERS[0];
+  const theater = theaters.find((t) => t.id === theaterId) ?? theaters[0] ?? {};
 
   return (
     <div
@@ -814,7 +814,7 @@ function BaseList({ sites, selectedId, onSelect, theaterId, onTheaterChange }) {
         overflow: "hidden",
       }}
     >
-      <TheaterSwitcher currentId={theaterId} onChange={onTheaterChange} />
+      <TheaterSwitcher currentId={theaterId} onChange={onTheaterChange} theaters={theaters} />
       <div style={{ padding: "10px 14px", borderBottom: "1px solid #1a2d45" }}>
         <div
           style={{
@@ -2033,17 +2033,63 @@ export default function SitePackage() {
   const { siteId } = useParams();
   const navigate = useNavigate();
 
-  // 专题
+  // 专题 & 点位 state（必须在 useEffect 前声明）
   const [theaterId, setTheaterId] = useState("iran");
-  const theater = THEATERS.find((t) => t.id === theaterId) ?? THEATERS[0];
-  const sites = theater.sites;
-  const newsMarkers = theater.newsMarkers ?? [];
-  const osintEvents = theater.osintEvents ?? [];
-
-  // 点位
-  const [selectedId, setSelectedId] = useState(sites[0]?.id ?? null);
+  const [theaters, setTheaters] = useState([]);
+  const [sites, setSites] = useState([]);
+  const [siteDetail, setSiteDetail] = useState(null);
+  const [timeline, setTimeline] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
   const [imgIdx, setImgIdx] = useState(0);
   const [selectedOsint, setSelectedOsint] = useState(null);
+
+  // 加载专题列表
+  useEffect(() => {
+    fetch("/api/theaters")
+      .then((r) => r.json())
+      .then(setTheaters)
+      .catch(console.error);
+  }, []);
+
+  // 切换专题时加载基地列表
+  useEffect(() => {
+    setSites([]);
+    setSiteDetail(null);
+    setTimeline([]);
+    fetch(`/api/theaters/${theaterId}/sites`)
+      .then((r) => r.json())
+      .then((data) => {
+        setSites(data);
+        setSelectedId(data[0]?.id ?? null);
+        setImgIdx(0);
+      })
+      .catch(console.error);
+  }, [theaterId]);
+
+  // 选中基地时加载详情和时间轴
+  useEffect(() => {
+    if (!selectedId) return;
+    setSiteDetail(null);
+    setTimeline([]);
+    fetch(`/api/sites/${selectedId}`)
+      .then((r) => r.json())
+      .then(setSiteDetail)
+      .catch(console.error);
+    fetch(`/api/sites/${selectedId}/timeline`)
+      .then((r) => r.json())
+      .then(setTimeline)
+      .catch(console.error);
+  }, [selectedId]);
+
+  const FALLBACK_CAMERAS = {
+    iran: { lng: 48, lat: 32, alt: 4200000 },
+    japan: { lng: 136, lat: 36, alt: 2800000 },
+  };
+  const theater = theaters.find((t) => t.id === theaterId) ?? {
+    camera: FALLBACK_CAMERAS[theaterId] ?? FALLBACK_CAMERAS.iran,
+  };
+  const newsMarkers = [];
+  const osintEvents = [];
 
   // 图层状态
   const [layers, setLayers] = useState({
@@ -2054,7 +2100,7 @@ export default function SitePackage() {
   });
   const [layerPanelOpen, setLayerPanelOpen] = useState(false);
 
-  const site = sites.find((s) => s.id === selectedId) ?? sites[0];
+  const site = siteDetail;
   const color = scoreColor(site?.combatScore ?? 0);
 
   useEffect(() => {
@@ -2064,8 +2110,6 @@ export default function SitePackage() {
 
   const handleTheaterChange = useCallback((newId) => {
     setTheaterId(newId);
-    const t = THEATERS.find((th) => th.id === newId);
-    if (t?.sites?.length) setSelectedId(t.sites[0].id);
     setImgIdx(0);
     setSelectedOsint(null);
   }, []);
@@ -2082,6 +2126,16 @@ export default function SitePackage() {
   }, []);
 
   if (!site) return null;
+
+  // 当前选中的影像条目（时间轴 API 或 score_json 内嵌 imagery 的回退）
+  const activeImgItems = timeline.length > 0 ? timeline : site.imagery ?? [];
+  const activeImg = activeImgItems[imgIdx] ?? activeImgItems[0] ?? {};
+  const activeImgDate = activeImg.create_time
+    ? activeImg.create_time.split(" ")[0]
+    : activeImg.date ?? "";
+  const activeImgDesc = activeImg.desc ?? "—";
+  const activeImgScore = activeImg.score ?? 0.85;
+
   const svTag =
     { S: "#ef4444", A: "#f59e0b" }[site.strategicValue] ?? "#22c55e";
 
@@ -2093,6 +2147,7 @@ export default function SitePackage() {
         onSelect={selectSite}
         theaterId={theaterId}
         onTheaterChange={handleTheaterChange}
+        theaters={theaters}
       />
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
@@ -2261,34 +2316,40 @@ export default function SitePackage() {
             <div
               style={{ display: "flex", gap: 8, flex: 1, overflowX: "auto" }}
             >
-              {site.imagery.map((img, i) => (
-                <div
-                  key={i}
-                  onClick={() => setImgIdx(i)}
-                  style={{
-                    flexShrink: 0,
-                    padding: "8px 14px",
-                    borderRadius: 3,
-                    cursor: "pointer",
-                    background: imgIdx === i ? `${color}22` : "#080f1e",
-                    border: `1px solid ${imgIdx === i ? color : "#1a2d45"}`,
-                    transition: "all 0.15s",
-                  }}
-                >
+              {(timeline.length > 0 ? timeline : site?.imagery ?? []).map((item, i) => {
+                const itemDate = item.create_time
+                  ? item.create_time.split(" ")[0]
+                  : item.date;
+                const itemLabel = item.label ?? `影像 #${item.image_id}`;
+                return (
                   <div
+                    key={item.id ?? i}
+                    onClick={() => setImgIdx(i)}
                     style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      color: imgIdx === i ? color : "#94a3b8",
+                      flexShrink: 0,
+                      padding: "8px 14px",
+                      borderRadius: 3,
+                      cursor: "pointer",
+                      background: imgIdx === i ? `${color}22` : "#080f1e",
+                      border: `1px solid ${imgIdx === i ? color : "#1a2d45"}`,
+                      transition: "all 0.15s",
                     }}
                   >
-                    {img.date}
+                    <div
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: imgIdx === i ? color : "#94a3b8",
+                      }}
+                    >
+                      {itemDate}
+                    </div>
+                    <div style={{ fontSize: 9, color: "#64748b", marginTop: 2 }}>
+                      {itemLabel}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 9, color: "#64748b", marginTop: 2 }}>
-                    {img.label}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -2369,7 +2430,7 @@ export default function SitePackage() {
             label="点位影像"
             right={
               <span style={{ fontSize: 10, color: statusColor(site.status) }}>
-                验证置信度 {(site.imagery[imgIdx]?.score * 100).toFixed(0)}%
+                验证置信度 {(activeImgScore * 100).toFixed(0)}%
               </span>
             }
           >
@@ -2399,7 +2460,7 @@ export default function SitePackage() {
                   {site.name}
                 </div>
                 <div style={{ fontSize: 9, color: "#1a2d45" }}>
-                  {site.imagery[imgIdx]?.date}
+                  {activeImgDate}
                 </div>
               </div>
               <div
@@ -2423,7 +2484,7 @@ export default function SitePackage() {
               }}
             >
               <span style={{ color: "#64748b" }}>识别结果：</span>
-              {site.imagery[imgIdx]?.desc}
+              {activeImgDesc}
             </div>
           </Section>
           <Section label="设施损毁评估">

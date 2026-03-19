@@ -1,6 +1,10 @@
 node_modules/
+backend/witness.db
 dist/
 .openclaw/
 .omc/
 *.local
 /.history
+WITNESS_技术白皮书.docx
+gen_whitepaper.py
+.claude/settings.local.json
