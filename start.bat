@@ -4,6 +4,7 @@ title WITNESS Launcher
 
 echo Starting WITNESS Backend (port 5001)...
 start "WITNESS Backend" cmd /k "cd /d %~dp0backend && C:\Users\test_dev\miniconda3\python.exe app.py"
+REM start "WITNESS Backend" cmd /k "cd /d %~dp0backend && D:\Users\liang\anaconda3\python.exe app.py"
 
 timeout /t 2 /nobreak >nul
 
