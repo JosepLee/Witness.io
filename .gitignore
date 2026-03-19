@@ -8,3 +8,7 @@ dist/
 WITNESS_技术白皮书.docx
 gen_whitepaper.py
 .claude/settings.local.json
+backend/__pycache__/db.cpython-37.pyc
+backend/api/__pycache__/__init__.cpython-37.pyc
+backend/api/__pycache__/theaters.cpython-37.pyc
+backend/api/__pycache__/sites.cpython-37.pyc
