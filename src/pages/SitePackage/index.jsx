@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import "cesium/Build/Cesium/Widgets/widgets.css";
-import { SITES, EVENTS, NEWS_MARKERS, OSINT_EVENTS } from "../../data/mockData";
+import { THEATERS, EVENTS } from "../../data/mockData";
 
 // ── 颜色工具 ─────────────────────────────────────────────────
 const STATUS_COLOR = {
@@ -34,17 +34,19 @@ const scoreColor = (v) =>
 const confColor = (v) =>
   v >= 0.7 ? "#22c55e" : v >= 0.45 ? "#f59e0b" : "#ef4444";
 
-// ── 天地图路网 ─────────────────────────────────────────────────
-const TIANDITU_TOKEN = "2bac672b2cdbc6986edde89f55058e28"; // 与第二份代码保持一致
+// ── 瓦片地址 ─────────────────────────────────────────────────
+const TIANDITU_TOKEN = "2bac672b2cdbc6986edde89f55058e28";
 const getTiandituUrl = () =>
   `/tianditu-proxy/cia_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cia&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${TIANDITU_TOKEN}`;
-// ── 底图 URL ─────────────────────────────────────────────────
 const getBaseMapUrl = () =>
   window.__USE_BASEMAP_PROXY__
     ? "/worldmap/getdata?x={x}&y={y}&l={z}"
     : `http://${window.BASE_MAP_ADDRESS ?? import.meta.env?.VITE_BASE_MAP_ADDRESS ?? "124.70.78.85"}:${window.BASE_MAP_PORT ?? import.meta.env?.VITE_BASE_MAP_PORT ?? "9998"}/getdata?x={x}&y={y}&l={z}`;
+// CartoDB 暗色作战底图
+const COMBAT_MAP_URL =
+  "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
 
-// ── 经纬度标准化（兼容 lng/lon/longitude, lat/latitude） ──────
+// ── 坐标标准化 ────────────────────────────────────────────────
 const warnedCoords = new Set();
 const normCoord = (item) => {
   const lng = Number(item?.lng ?? item?.lon ?? item?.longitude);
@@ -60,8 +62,732 @@ const normCoord = (item) => {
   return { lng, lat };
 };
 
-// ── BaseList ─────────────────────────────────────────────────
-function BaseList({ sites, selectedId, onSelect }) {
+// ══════════════════════════════════════════════════════════════
+//  LayerPanel — 图层管理面板
+// ══════════════════════════════════════════════════════════════
+function LayerPanel({ layers, onLayersChange }) {
+  // layers = { basemap: "own"|"combat", sites: bool, news: bool, osint: bool }
+
+  // 分组定义
+  const basemapOptions = [
+    {
+      id: "combat",
+      label: "作战绘制图层",
+      desc: "CartoDB 暗色矢量底图",
+      icon: "🗺",
+    },
+    { id: "own", label: " “吉林一号” 星座全球底图", desc: "卫星影像 + 天地图路网", icon: "🛰" },
+    
+  ];
+  const overlayItems = [
+    {
+      id: "sites",
+      label: "基地点位标记",
+      desc: "ACI 指数 · 状态监控",
+      icon: "◎",
+      color: "#22c55e",
+    },
+    {
+      id: "news",
+      label: "新闻事件标记",
+      desc: "多源新闻 · 实时更新",
+      icon: "📰",
+      color: "#f59e0b",
+    },
+    {
+      id: "osint",
+      label: "OSINT 情报标记",
+      desc: "开源情报 · 置信度标注",
+      icon: "◈",
+      color: "#0ea5e9",
+    },
+  ];
+
+  const GroupHeader = ({ icon, label, count }) => (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 7,
+        padding: "8px 14px 5px",
+        borderBottom: "1px solid #0d1a2e",
+      }}
+    >
+      <span style={{ fontSize: 10, color: "#334155" }}>{icon}</span>
+      <span
+        style={{
+          fontSize: 9,
+          color: "#64748b",
+          letterSpacing: "0.12em",
+          fontWeight: 600,
+        }}
+      >
+        {label}
+      </span>
+      <span style={{ fontSize: 8, color: "#1e3a5f", marginLeft: "auto" }}>
+        {count}
+      </span>
+    </div>
+  );
+
+  const RadioRow = ({ option, active, onClick }) => (
+    <button
+      onClick={onClick}
+      style={{
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "8px 14px",
+        background: active ? "rgba(14,165,233,0.08)" : "transparent",
+        border: "none",
+        borderBottom: "1px solid #0a1520",
+        cursor: "pointer",
+        textAlign: "left",
+        transition: "background 0.15s",
+      }}
+      onMouseEnter={(e) => {
+        if (!active)
+          e.currentTarget.style.background = "rgba(255,255,255,0.03)";
+      }}
+      onMouseLeave={(e) => {
+        if (!active) e.currentTarget.style.background = "transparent";
+      }}
+    >
+      {/* 单选圆点 */}
+      <div
+        style={{
+          width: 14,
+          height: 14,
+          borderRadius: "50%",
+          border: `1.5px solid ${active ? "#0ea5e9" : "#334155"}`,
+          background: active ? "#0ea5e9" : "transparent",
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          transition: "all 0.15s",
+        }}
+      >
+        {active && (
+          <div
+            style={{
+              width: 5,
+              height: 5,
+              borderRadius: "50%",
+              background: "#040810",
+            }}
+          />
+        )}
+      </div>
+      <span style={{ fontSize: 12, lineHeight: 1, flexShrink: 0 }}>
+        {option.icon}
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 10,
+            color: active ? "#e2e8f0" : "#94a3b8",
+            fontWeight: active ? 600 : 400,
+            letterSpacing: "0.02em",
+          }}
+        >
+          {option.label}
+        </div>
+        <div
+          style={{
+            fontSize: 8,
+            color: "#334155",
+            marginTop: 2,
+            letterSpacing: "0.04em",
+          }}
+        >
+          {option.desc}
+        </div>
+      </div>
+      {active && (
+        <div
+          style={{
+            width: 4,
+            height: 4,
+            borderRadius: "50%",
+            background: "#0ea5e9",
+            boxShadow: "0 0 6px #0ea5e9",
+            flexShrink: 0,
+          }}
+        />
+      )}
+    </button>
+  );
+
+  const CheckRow = ({ item, checked, onToggle }) => (
+    <button
+      onClick={onToggle}
+      style={{
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "8px 14px",
+        background: checked ? `${item.color}08` : "transparent",
+        border: "none",
+        borderBottom: "1px solid #0a1520",
+        cursor: "pointer",
+        textAlign: "left",
+        transition: "background 0.15s",
+      }}
+      onMouseEnter={(e) => {
+        if (!checked)
+          e.currentTarget.style.background = "rgba(255,255,255,0.03)";
+      }}
+      onMouseLeave={(e) => {
+        if (!checked)
+          e.currentTarget.style.background = checked
+            ? `${item.color}08`
+            : "transparent";
+      }}
+    >
+      {/* 复选框 */}
+      <div
+        style={{
+          width: 14,
+          height: 14,
+          borderRadius: 2,
+          border: `1.5px solid ${checked ? item.color : "#334155"}`,
+          background: checked ? item.color : "transparent",
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          transition: "all 0.15s",
+        }}
+      >
+        {checked && (
+          <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
+            <polyline
+              points="1,3.5 3.5,6 8,1"
+              stroke="#040810"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
+      </div>
+      <span
+        style={{
+          fontSize: 12,
+          lineHeight: 1,
+          flexShrink: 0,
+          color: checked ? item.color : "#334155",
+        }}
+      >
+        {item.icon}
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 10,
+            color: checked ? "#e2e8f0" : "#64748b",
+            fontWeight: checked ? 500 : 400,
+          }}
+        >
+          {item.label}
+        </div>
+        <div style={{ fontSize: 8, color: "#334155", marginTop: 2 }}>
+          {item.desc}
+        </div>
+      </div>
+      {/* 可见性图标 */}
+      <div
+        style={{
+          flexShrink: 0,
+          opacity: checked ? 0.8 : 0.25,
+          fontSize: 10,
+          color: checked ? item.color : "#64748b",
+        }}
+      >
+        {checked ? "👁" : "🚫"}
+      </div>
+    </button>
+  );
+
+  return (
+    <div
+      style={{
+        width: 226,
+        background: "#040c18",
+        border: "1px solid #1a2d45",
+        borderRadius: 6,
+        overflow: "hidden",
+        boxShadow:
+          "0 12px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(14,165,233,0.08)",
+        animation: "layerPanelIn 0.18s ease",
+      }}
+    >
+      {/* 面板标题 */}
+      <div
+        style={{
+          padding: "10px 14px 8px",
+          borderBottom: "1px solid #1a2d45",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <rect
+            x="0"
+            y="0"
+            width="12"
+            height="3"
+            rx="1"
+            fill="#0ea5e9"
+            opacity="0.9"
+          />
+          <rect
+            x="0"
+            y="4.5"
+            width="12"
+            height="3"
+            rx="1"
+            fill="#0ea5e9"
+            opacity="0.6"
+          />
+          <rect
+            x="0"
+            y="9"
+            width="8"
+            height="3"
+            rx="1"
+            fill="#0ea5e9"
+            opacity="0.3"
+          />
+        </svg>
+        <span
+          style={{
+            fontSize: 9,
+            color: "#64748b",
+            letterSpacing: "0.14em",
+            fontWeight: 600,
+          }}
+        >
+          LAYER CONTROL
+        </span>
+        <div
+          style={{
+            marginLeft: "auto",
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+          }}
+        >
+          <div
+            style={{
+              width: 5,
+              height: 5,
+              borderRadius: "50%",
+              background: "#22c55e",
+              boxShadow: "0 0 5px #22c55e",
+            }}
+          />
+          <span style={{ fontSize: 8, color: "#22c55e" }}>LIVE</span>
+        </div>
+      </div>
+
+      {/* 底图组 */}
+      <GroupHeader
+        icon="⬛"
+        label="底图图层"
+        count={`${basemapOptions.length} 项 · 单选`}
+      />
+      {basemapOptions.map((opt) => (
+        <RadioRow
+          key={opt.id}
+          option={opt}
+          active={layers.basemap === opt.id}
+          onClick={() => onLayersChange({ ...layers, basemap: opt.id })}
+        />
+      ))}
+
+      {/* 标注组 */}
+      <GroupHeader
+        icon="📍"
+        label="标注图层"
+        count={`${overlayItems.length} 项 · 多选`}
+      />
+      {overlayItems.map((item) => (
+        <CheckRow
+          key={item.id}
+          item={item}
+          checked={layers[item.id]}
+          onToggle={() =>
+            onLayersChange({ ...layers, [item.id]: !layers[item.id] })
+          }
+        />
+      ))}
+
+      {/* 底部统计 */}
+      <div
+        style={{
+          padding: "7px 14px",
+          borderTop: "1px solid #0d1a2e",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <span
+          style={{ fontSize: 8, color: "#1e3a5f", letterSpacing: "0.08em" }}
+        >
+          {overlayItems.filter((i) => layers[i.id]).length}/
+          {overlayItems.length} 标注可见
+        </span>
+        <button
+          onClick={() =>
+            onLayersChange({
+              basemap: "combat",
+              sites: true,
+              news: true,
+              osint: true,
+            })
+          }
+          style={{
+            fontSize: 8,
+            color: "#334155",
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            letterSpacing: "0.06em",
+            padding: "2px 4px",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "#64748b")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "#334155")}
+        >
+          重置
+        </button>
+      </div>
+
+      <style>{`@keyframes layerPanelIn { from{opacity:0;transform:translateY(8px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} }`}</style>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+//  LayerToggleButton — 左下角触发按钮
+// ══════════════════════════════════════════════════════════════
+function LayerToggleButton({ open, onClick, layers }) {
+  const activeOverlays = ["sites", "news", "osint"].filter(
+    (k) => layers[k],
+  ).length;
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 7,
+        padding: "8px 12px",
+        background: open ? "rgba(14,165,233,0.15)" : "rgba(4,8,16,0.88)",
+        border: `1px solid ${open ? "#0ea5e9" : "#1a2d45"}`,
+        borderRadius: 4,
+        cursor: "pointer",
+        backdropFilter: "blur(8px)",
+        transition: "all 0.2s",
+        boxShadow: open ? "0 0 16px rgba(14,165,233,0.2)" : "none",
+      }}
+      onMouseEnter={(e) => {
+        if (!open) {
+          e.currentTarget.style.borderColor = "#0ea5e966";
+          e.currentTarget.style.background = "rgba(14,165,233,0.06)";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!open) {
+          e.currentTarget.style.borderColor = "#1a2d45";
+          e.currentTarget.style.background = "rgba(4,8,16,0.88)";
+        }
+      }}
+    >
+      {/* 图层堆叠图标 */}
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <rect
+          x="1"
+          y="1"
+          width="12"
+          height="3.5"
+          rx="1"
+          fill={open ? "#0ea5e9" : "#64748b"}
+          opacity="1"
+        />
+        <rect
+          x="1"
+          y="5.3"
+          width="12"
+          height="3.5"
+          rx="1"
+          fill={open ? "#0ea5e9" : "#64748b"}
+          opacity="0.65"
+        />
+        <rect
+          x="1"
+          y="9.5"
+          width="8"
+          height="3.5"
+          rx="1"
+          fill={open ? "#0ea5e9" : "#64748b"}
+          opacity="0.35"
+        />
+      </svg>
+      <span
+        style={{
+          fontSize: 10,
+          color: open ? "#0ea5e9" : "#94a3b8",
+          letterSpacing: "0.06em",
+          fontFamily: "JetBrains Mono",
+        }}
+      >
+        图层
+      </span>
+      {/* 激活徽章 */}
+      <div
+        style={{
+          minWidth: 16,
+          height: 16,
+          borderRadius: 8,
+          background: open ? "#0ea5e9" : "#1a2d45",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 8,
+          color: open ? "#040810" : "#64748b",
+          fontWeight: 700,
+          fontFamily: "JetBrains Mono",
+          padding: "0 4px",
+          transition: "all 0.2s",
+        }}
+      >
+        {activeOverlays + 1}
+      </div>
+    </button>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+//  TheaterSwitcher
+// ══════════════════════════════════════════════════════════════
+function TheaterSwitcher({ currentId, onChange }) {
+  const [open, setOpen] = useState(false);
+  const current = THEATERS.find((t) => t.id === currentId) ?? THEATERS[0];
+
+  return (
+    <div
+      style={{
+        padding: "10px 14px",
+        borderBottom: "1px solid #1a2d45",
+        position: "relative",
+      }}
+    >
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "7px 10px",
+          background: open ? "#0d1a2e" : "rgba(14,165,233,0.06)",
+          border: `1px solid ${open ? "#0ea5e9" : "#1a2d45"}`,
+          borderRadius: 4,
+          cursor: "pointer",
+          transition: "all 0.2s",
+          outline: "none",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <div style={{ position: "relative", width: 8, height: 8 }}>
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                borderRadius: "50%",
+                background: "#0ea5e9",
+                animation: "theaterPulse 2s ease-out infinite",
+              }}
+            />
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                borderRadius: "50%",
+                background: "#0ea5e9",
+              }}
+            />
+          </div>
+          <span
+            style={{
+              fontSize: 9,
+              color: "#64748b",
+              letterSpacing: "0.12em",
+              fontFamily: "JetBrains Mono",
+            }}
+          >
+            THEATER
+          </span>
+          <span style={{ fontSize: 10, color: "#e2e8f0", fontWeight: 600 }}>
+            {current.flag} {current.label}
+          </span>
+        </div>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 12 12"
+          style={{
+            transition: "transform 0.2s",
+            transform: open ? "rotate(180deg)" : "rotate(0deg)",
+            flexShrink: 0,
+          }}
+        >
+          <polyline
+            points="2,4 6,8 10,4"
+            fill="none"
+            stroke="#64748b"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% - 2px)",
+            left: 14,
+            right: 14,
+            zIndex: 2000,
+            background: "#040810",
+            border: "1px solid #0ea5e944",
+            borderRadius: 4,
+            overflow: "hidden",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+            animation: "dropDown 0.18s ease",
+          }}
+        >
+          {THEATERS.map((theater, idx) => {
+            const isActive = theater.id === currentId;
+            return (
+              <button
+                key={theater.id}
+                onClick={() => {
+                  onChange(theater.id);
+                  setOpen(false);
+                }}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "9px 12px",
+                  background: isActive
+                    ? "rgba(14,165,233,0.12)"
+                    : "transparent",
+                  border: "none",
+                  borderTop: idx > 0 ? "1px solid #0d1a2e" : "none",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive)
+                    e.currentTarget.style.background = "rgba(14,165,233,0.06)";
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive)
+                    e.currentTarget.style.background = "transparent";
+                }}
+              >
+                <span style={{ fontSize: 16, lineHeight: 1 }}>
+                  {theater.flag}
+                </span>
+                <div style={{ flex: 1 }}>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: isActive ? "#0ea5e9" : "#cbd5e1",
+                      fontWeight: isActive ? 700 : 400,
+                    }}
+                  >
+                    {theater.label}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 8,
+                      color: "#334155",
+                      letterSpacing: "0.1em",
+                      marginTop: 1,
+                    }}
+                  >
+                    {theater.labelEn}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 8, color: "#334155" }}>
+                    {theater.sites.length} 点位
+                  </div>
+                  {isActive && (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 3,
+                        justifyContent: "flex-end",
+                        marginTop: 2,
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 4,
+                          height: 4,
+                          borderRadius: "50%",
+                          background: "#22c55e",
+                        }}
+                      />
+                      <span style={{ fontSize: 7, color: "#22c55e" }}>
+                        ACTIVE
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+          <div
+            style={{
+              padding: "6px 12px",
+              borderTop: "1px solid #0d1a2e",
+              fontSize: 8,
+              color: "#1e3a5f",
+              letterSpacing: "0.08em",
+            }}
+          >
+            ◈ {THEATERS.length} 专题已载入
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes theaterPulse { 0%{transform:scale(1);opacity:.9} 60%{transform:scale(2.2);opacity:0} 100%{transform:scale(2.2);opacity:0} }
+        @keyframes dropDown { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+      `}</style>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+//  BaseList
+// ══════════════════════════════════════════════════════════════
+function BaseList({ sites, selectedId, onSelect, theaterId, onTheaterChange }) {
   const [filter, setFilter] = useState("all");
   const FILTERS = [
     ["all", "全部"],
@@ -71,6 +797,10 @@ function BaseList({ sites, selectedId, onSelect }) {
   ];
   const visible =
     filter === "all" ? sites : sites.filter((s) => s.status === filter);
+  useEffect(() => {
+    setFilter("all");
+  }, [theaterId]);
+  const theater = THEATERS.find((t) => t.id === theaterId) ?? THEATERS[0];
 
   return (
     <div
@@ -84,7 +814,8 @@ function BaseList({ sites, selectedId, onSelect }) {
         overflow: "hidden",
       }}
     >
-      <div style={{ padding: "12px 14px", borderBottom: "1px solid #1a2d45" }}>
+      <TheaterSwitcher currentId={theaterId} onChange={onTheaterChange} />
+      <div style={{ padding: "10px 14px", borderBottom: "1px solid #1a2d45" }}>
         <div
           style={{
             fontSize: 9,
@@ -116,11 +847,10 @@ function BaseList({ sites, selectedId, onSelect }) {
           ))}
         </div>
       </div>
-
       <div style={{ flex: 1, overflowY: "auto" }}>
         {visible.map((site) => {
-          const sc = statusColor(site.status);
-          const sel = site.id === selectedId;
+          const sc = statusColor(site.status),
+            sel = site.id === selectedId;
           return (
             <div
               key={site.id}
@@ -181,7 +911,6 @@ function BaseList({ sites, selectedId, onSelect }) {
           );
         })}
       </div>
-
       <div
         style={{
           padding: "10px 14px",
@@ -196,14 +925,14 @@ function BaseList({ sites, selectedId, onSelect }) {
         点位数据锚定信实链节点
         <br />
         <span style={{ color: "#334155" }}>
-          ◈ {OSINT_EVENTS.length} 条开源情报待验证
+          ◈ {theater.osintEvents?.length ?? 0} 条开源情报待验证
         </span>
       </div>
     </div>
   );
 }
 
-// ── RadarChart ───────────────────────────────────────────────
+// ── 其余小组件（保持不变）────────────────────────────────────
 function RadarChart({ site }) {
   const S = 140,
     cx = 70,
@@ -270,7 +999,6 @@ function RadarChart({ site }) {
   );
 }
 
-// ── DualScore ────────────────────────────────────────────────
 function DualScore({ aci, dci }) {
   return (
     <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
@@ -322,7 +1050,6 @@ function DualScore({ aci, dci }) {
   );
 }
 
-// ── DualTrendChart ───────────────────────────────────────────
 function DualTrendChart({ dailyData }) {
   const W = 280,
     H = 60,
@@ -378,7 +1105,6 @@ function DualTrendChart({ dailyData }) {
   );
 }
 
-// ── DamageStatus ─────────────────────────────────────────────
 function DamageStatus({ status }) {
   const MAP = {
     operational: ["完好无损", "#22c55e", "✓"],
@@ -405,7 +1131,6 @@ function DamageStatus({ status }) {
   );
 }
 
-// ── FacilitiesList ───────────────────────────────────────────
 function FacilitiesList({ facilities }) {
   return (
     <div>
@@ -460,7 +1185,6 @@ function FacilitiesList({ facilities }) {
   );
 }
 
-// ── RelatedEvents ────────────────────────────────────────────
 function RelatedEvents({ siteId, onNavigate }) {
   const related = EVENTS.filter((e) => e.siteId === siteId && e.verified);
   if (!related.length) return null;
@@ -518,11 +1242,10 @@ function RelatedEvents({ siteId, onNavigate }) {
   );
 }
 
-// ── NewsModal ────────────────────────────────────────────────
 function NewsModal({ news, onClose }) {
   if (!news) return null;
-  const tc = TYPE_COLOR[news.type] ?? "#94a3b8";
-  const tl = TYPE_LABEL[news.type] ?? "信息";
+  const tc = TYPE_COLOR[news.type] ?? "#94a3b8",
+    tl = TYPE_LABEL[news.type] ?? "信息";
   return (
     <div
       style={{
@@ -638,7 +1361,6 @@ function NewsModal({ news, onClose }) {
   );
 }
 
-// ── OsintCard ────────────────────────────────────────────────
 function OsintCard({ event, onClose }) {
   if (!event) return null;
   const c = confColor(event.confidence);
@@ -810,18 +1532,45 @@ function OsintCard({ event, onClose }) {
   );
 }
 
-// ── SiteMap (Cesium) ─────────────────────────────────────────
-function SiteMap({ sites, selectedId, onSelect, osintEvents, onOsintSelect }) {
+// ══════════════════════════════════════════════════════════════
+//  SiteMap — Cesium 地图，接受 layers 状态控制图层显隐
+// ══════════════════════════════════════════════════════════════
+function SiteMap({
+  sites,
+  selectedId,
+  onSelect,
+  osintEvents,
+  newsMarkers,
+  onOsintSelect,
+  theaterCamera,
+  layers,
+}) {
+  const sitesRef = useRef(sites);
+  const newsRef = useRef(newsMarkers);
+  const osintRef = useRef(osintEvents);
+
+  useEffect(() => {
+    sitesRef.current = sites;
+  }, [sites]);
+  useEffect(() => {
+    newsRef.current = newsMarkers;
+  }, [newsMarkers]);
+  useEffect(() => {
+    osintRef.current = osintEvents;
+  }, [osintEvents]);
+
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
   const cesiumRef = useRef(null);
   const handlerRef = useRef(null);
+  // 存储图层引用，用于动态显隐/切换
+  const layerRefsRef = useRef({ base: null, cia: null, combat: null });
+
   const [selectedNews, setSelectedNews] = useState(null);
   const [pts, setPts] = useState({ sites: [], news: [], osint: [] });
-
   const baseMapUrl = useMemo(getBaseMapUrl, []);
 
-  // Cesium 初始化
+  // ── Cesium 初始化（只执行一次）──────────────────────────────
   useEffect(() => {
     let destroyed = false;
     async function init() {
@@ -834,6 +1583,7 @@ function SiteMap({ sites, selectedId, onSelect, osintEvents, onOsintSelect }) {
         Viewer,
         UrlTemplateImageryProvider,
         GeographicTilingScheme,
+        WebMercatorTilingScheme,
         Ellipsoid,
         EllipsoidTerrainProvider,
         Color,
@@ -860,13 +1610,13 @@ function SiteMap({ sites, selectedId, onSelect, osintEvents, onOsintSelect }) {
         shouldAnimate: true,
       });
       viewerRef.current = viewer;
-
       if (viewer.cesiumWidget.creditContainer)
         viewer.cesiumWidget.creditContainer.style.display = "none";
 
-      // 底图
       viewer.imageryLayers.removeAll();
-      const provider = new UrlTemplateImageryProvider({
+
+      // ① 自有底图（默认显示）
+      const baseProvider = new UrlTemplateImageryProvider({
         url: baseMapUrl,
         tilingScheme: new GeographicTilingScheme({
           ellipsoid: Ellipsoid.WGS84,
@@ -875,26 +1625,39 @@ function SiteMap({ sites, selectedId, onSelect, osintEvents, onOsintSelect }) {
         maximumLevel: 18,
         enablePickFeatures: false,
       });
-      provider.errorEvent.addEventListener((e) =>
+      baseProvider.errorEvent.addEventListener((e) =>
         console.error("[worldmap]", e),
       );
-      const layer = viewer.imageryLayers.addImageryProvider(provider);
-      layer.alpha = layer.brightness = layer.contrast = 1;
+      const baseLayer = viewer.imageryLayers.addImageryProvider(baseProvider);
+      baseLayer.alpha = baseLayer.brightness = baseLayer.contrast = 1;
+      baseLayer.show = false;
+      layerRefsRef.current.base = baseLayer;
 
-      // 天地图路网叠加层（vec_w，WGS84 墨卡托）
-      const tiandituProvider = new UrlTemplateImageryProvider({
+      // ② 天地图 cia_w 路网（随自有底图同显隐）
+      const ciaProvider = new UrlTemplateImageryProvider({
         url: getTiandituUrl(),
-        subdomains: ["0", "1", "2", "3", "4", "5", "6", "7"],
-        tilingScheme: new Cesium.WebMercatorTilingScheme(),
+        tilingScheme: new WebMercatorTilingScheme(),
         minimumLevel: 0,
         maximumLevel: 18,
         enablePickFeatures: false,
       });
-      const streetLayer =
-        viewer.imageryLayers.addImageryProvider(tiandituProvider);
-      streetLayer.alpha = 1;
-      streetLayer.brightness = 1;
-      streetLayer.contrast = 1;
+      const ciaLayer = viewer.imageryLayers.addImageryProvider(ciaProvider);
+      ciaLayer.alpha = 1;
+      ciaLayer.show = false;
+      layerRefsRef.current.cia = ciaLayer;
+
+      // ③ CartoDB 作战绘制底图（默认隐藏）
+      const combatProvider = new UrlTemplateImageryProvider({
+        url: COMBAT_MAP_URL,
+        subdomains: ["a", "b", "c", "d"],
+        minimumLevel: 0,
+        maximumLevel: 19,
+        enablePickFeatures: false,
+      });
+      const combatLayer =
+        viewer.imageryLayers.addImageryProvider(combatProvider);
+      combatLayer.show = true;
+      layerRefsRef.current.combat = combatLayer;
 
       // 场景风格
       Object.assign(viewer.scene, { fxaa: true });
@@ -905,16 +1668,25 @@ function SiteMap({ sites, selectedId, onSelect, osintEvents, onOsintSelect }) {
       viewer.scene.backgroundColor = viewer.scene.globe.baseColor =
         Color.fromCssColorString("#040810");
       viewer.scene.globe.enableLighting = false;
+
       viewer.camera.flyTo({
-        destination: Cartesian3.fromDegrees(48, 32, 4200000),
+        destination: Cartesian3.fromDegrees(
+          theaterCamera.lng,
+          theaterCamera.lat,
+          theaterCamera.alt,
+        ),
         duration: 0,
       });
 
-      // overlay 更新（每帧投影点位到屏幕坐标）
+      // overlay 更新
       const updateOverlays = () => {
         if (!viewerRef.current || !cesiumRef.current) return;
-        const { Cartesian3, SceneTransforms, EllipsoidalOccluder, defined } =
-          cesiumRef.current;
+        const {
+          Cartesian3: C3,
+          SceneTransforms,
+          EllipsoidalOccluder,
+          defined: def,
+        } = cesiumRef.current;
         const occluder = new EllipsoidalOccluder(
           viewer.scene.globe.ellipsoid,
           viewer.camera.positionWC,
@@ -923,14 +1695,13 @@ function SiteMap({ sites, selectedId, onSelect, osintEvents, onOsintSelect }) {
           SceneTransforms.worldToWindowCoordinates ??
           SceneTransforms.wgs84ToWindowCoordinates;
         const canvas = viewer.scene.canvas;
-
         const projectItem = (item) => {
           const coord = normCoord(item);
           if (!coord) return null;
-          const cart = Cartesian3.fromDegrees(coord.lng, coord.lat, 0);
+          const cart = C3.fromDegrees(coord.lng, coord.lat, 0);
           if (!occluder.isPointVisible(cart)) return null;
           const wp = project(viewer.scene, cart);
-          if (!defined(wp)) return null;
+          if (!def(wp)) return null;
           if (
             wp.x < -80 ||
             wp.x > canvas.clientWidth + 80 ||
@@ -940,18 +1711,15 @@ function SiteMap({ sites, selectedId, onSelect, osintEvents, onOsintSelect }) {
             return null;
           return { ...item, x: wp.x, y: wp.y };
         };
-
         setPts({
-          sites: sites.map(projectItem).filter(Boolean),
-          news: NEWS_MARKERS.map(projectItem).filter(Boolean),
-          osint: osintEvents.map(projectItem).filter(Boolean),
+          sites: sitesRef.current.map(projectItem).filter(Boolean),
+          news: newsRef.current.map(projectItem).filter(Boolean),
+          osint: osintRef.current.map(projectItem).filter(Boolean),
         });
       };
-
       viewer.__updateOverlays__ = updateOverlays;
       viewer.scene.postRender.addEventListener(updateOverlays);
 
-      // 点击空白关闭
       const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
       handler.setInputAction((mv) => {
         if (!defined(viewer.scene.pick(mv.position))) {
@@ -973,7 +1741,30 @@ function SiteMap({ sites, selectedId, onSelect, osintEvents, onOsintSelect }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseMapUrl]);
 
-  // 选中基地时飞行
+  // ── 专题切换时飞行 ───────────────────────────────────────────
+  useEffect(() => {
+    if (!viewerRef.current || !cesiumRef.current) return;
+    const { Cartesian3 } = cesiumRef.current;
+    viewerRef.current.camera.flyTo({
+      destination: Cartesian3.fromDegrees(
+        theaterCamera.lng,
+        theaterCamera.lat,
+        theaterCamera.alt,
+      ),
+      duration: 1.8,
+    });
+  }, [theaterCamera]);
+
+  // ── 动态数据同步 ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!viewerRef.current) return;
+    viewerRef.current.__sites__ = sites;
+    viewerRef.current.__news__ = newsMarkers;
+    viewerRef.current.__osint__ = osintEvents;
+    viewerRef.current.__updateOverlays__?.();
+  }, [sites, newsMarkers, osintEvents]);
+
+  // ── 选中点位飞行 ─────────────────────────────────────────────
   useEffect(() => {
     if (!viewerRef.current || !cesiumRef.current || !selectedId) return;
     const site = sites.find((s) => s.id === selectedId);
@@ -988,10 +1779,18 @@ function SiteMap({ sites, selectedId, onSelect, osintEvents, onOsintSelect }) {
     viewerRef.current.__updateOverlays__?.();
   }, [selectedId, sites]);
 
-  // 数据变化时刷新 overlay
+  // ── 图层显隐控制（响应 layers 状态变化）─────────────────────
   useEffect(() => {
-    viewerRef.current?.__updateOverlays__?.();
-  }, [sites, osintEvents, selectedId]);
+    const lr = layerRefsRef.current;
+    if (!lr.base || !lr.cia || !lr.combat) return;
+
+    const isOwn = layers.basemap === "own";
+    const isCombat = layers.basemap === "combat";
+
+    lr.base.show = isOwn;
+    lr.cia.show = isOwn;
+    lr.combat.show = isCombat;
+  }, [layers.basemap]);
 
   return (
     <div
@@ -1004,7 +1803,7 @@ function SiteMap({ sites, selectedId, onSelect, osintEvents, onOsintSelect }) {
     >
       <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
 
-      {/* DOM overlay 层 */}
+      {/* DOM overlay */}
       <div
         style={{
           position: "absolute",
@@ -1013,182 +1812,185 @@ function SiteMap({ sites, selectedId, onSelect, osintEvents, onOsintSelect }) {
           zIndex: 600,
         }}
       >
-        {/* 基地标记 */}
-        {pts.sites.map((site) => {
-          const c = statusColor(site.status),
-            sel = site.id === selectedId;
-          return (
-            <div
-              key={site.id}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelect(site.id);
-                onOsintSelect(null);
-              }}
-              style={{
-                position: "absolute",
-                left: site.x,
-                top: site.y,
-                transform: "translate(-50%,-50%)",
-                pointerEvents: "auto",
-                cursor: "pointer",
-                zIndex: sel ? 30 : 20,
-              }}
-            >
+        {/* 基地点位（受 layers.sites 控制）*/}
+        {layers.sites &&
+          pts.sites.map((site) => {
+            const c = statusColor(site.status),
+              sel = site.id === selectedId;
+            return (
               <div
+                key={site.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelect(site.id);
+                  onOsintSelect(null);
+                }}
                 style={{
                   position: "absolute",
-                  left: "50%",
-                  top: "50%",
-                  width: sel ? 42 : 32,
-                  height: sel ? 42 : 32,
+                  left: site.x,
+                  top: site.y,
                   transform: "translate(-50%,-50%)",
-                  borderRadius: "50%",
-                  border: `2px solid ${c}`,
-                  opacity: 0.5,
-                  animation: "sitePulse 1.8s ease-out infinite",
-                }}
-              />
-              <div
-                style={{
-                  width: sel ? 28 : 24,
-                  height: sel ? 28 : 24,
-                  borderRadius: "50%",
-                  background: `${c}33`,
-                  border: `2px solid ${c}`,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 9,
-                  color: c,
-                  fontFamily: "JetBrains Mono",
-                  fontWeight: 700,
-                  boxShadow: `0 0 ${sel ? 18 : 10}px ${c}${sel ? "aa" : "66"}`,
-                  backdropFilter: "blur(2px)",
-                  transition: "all 0.2s",
+                  pointerEvents: "auto",
+                  cursor: "pointer",
+                  zIndex: sel ? 30 : 20,
                 }}
               >
-                {site.aci}
-              </div>
-              {sel && (
                 <div
                   style={{
                     position: "absolute",
                     left: "50%",
-                    top: -12,
-                    transform: "translate(-50%,-100%)",
-                    whiteSpace: "nowrap",
-                    padding: "5px 8px",
-                    borderRadius: 3,
-                    background: "rgba(4,8,16,0.92)",
-                    border: `1px solid ${c}66`,
-                    color: "#e2e8f0",
-                    fontSize: 10,
-                    boxShadow: `0 0 12px ${c}22`,
+                    top: "50%",
+                    width: sel ? 42 : 32,
+                    height: sel ? 42 : 32,
+                    transform: "translate(-50%,-50%)",
+                    borderRadius: "50%",
+                    border: `2px solid ${c}`,
+                    opacity: 0.5,
+                    animation: "sitePulse 1.8s ease-out infinite",
+                  }}
+                />
+                <div
+                  style={{
+                    width: sel ? 28 : 24,
+                    height: sel ? 28 : 24,
+                    borderRadius: "50%",
+                    background: `${c}33`,
+                    border: `2px solid ${c}`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 9,
+                    color: c,
+                    fontFamily: "JetBrains Mono",
+                    fontWeight: 700,
+                    boxShadow: `0 0 ${sel ? 18 : 10}px ${c}${sel ? "aa" : "66"}`,
+                    backdropFilter: "blur(2px)",
+                    transition: "all 0.2s",
                   }}
                 >
-                  {site.name}
+                  {site.aci}
                 </div>
-              )}
-            </div>
-          );
-        })}
+                {sel && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: "50%",
+                      top: -12,
+                      transform: "translate(-50%,-100%)",
+                      whiteSpace: "nowrap",
+                      padding: "5px 8px",
+                      borderRadius: 3,
+                      background: "rgba(4,8,16,0.92)",
+                      border: `1px solid ${c}66`,
+                      color: "#e2e8f0",
+                      fontSize: 10,
+                      boxShadow: `0 0 12px ${c}22`,
+                    }}
+                  >
+                    {site.name}
+                  </div>
+                )}
+              </div>
+            );
+          })}
 
-        {/* 新闻标记 */}
-        {pts.news.map((item) => {
-          const tc = TYPE_COLOR[item.type] ?? "#94a3b8";
-          return (
-            <div
-              key={item.id}
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedNews(item);
-                onOsintSelect(null);
-              }}
-              style={{
-                position: "absolute",
-                left: item.x,
-                top: item.y,
-                transform: "translate(-50%,-50%)",
-                pointerEvents: "auto",
-                cursor: "pointer",
-                zIndex: 15,
-              }}
-            >
+        {/* 新闻标记（受 layers.news 控制）*/}
+        {layers.news &&
+          pts.news.map((item) => {
+            const tc = TYPE_COLOR[item.type] ?? "#94a3b8";
+            return (
               <div
+                key={item.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedNews(item);
+                  onOsintSelect(null);
+                }}
                 style={{
-                  width: 20,
-                  height: 20,
-                  borderRadius: "50%",
-                  background: `${tc}22`,
-                  border: `2px solid ${tc}`,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 10,
-                  boxShadow: `0 0 8px ${tc}88`,
+                  position: "absolute",
+                  left: item.x,
+                  top: item.y,
+                  transform: "translate(-50%,-50%)",
+                  pointerEvents: "auto",
+                  cursor: "pointer",
+                  zIndex: 15,
                 }}
               >
-                📰
+                <div
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: "50%",
+                    background: `${tc}22`,
+                    border: `2px solid ${tc}`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 10,
+                    boxShadow: `0 0 8px ${tc}88`,
+                  }}
+                >
+                  📰
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
 
-        {/* OSINT 标记 */}
-        {pts.osint.map((ev) => {
-          const c = confColor(ev.confidence);
-          return (
-            <div
-              key={ev.id}
-              onClick={(e) => {
-                e.stopPropagation();
-                onOsintSelect(ev);
-                setSelectedNews(null);
-              }}
-              style={{
-                position: "absolute",
-                left: ev.x,
-                top: ev.y,
-                transform: "translate(-50%,-50%)",
-                pointerEvents: "auto",
-                cursor: "pointer",
-                zIndex: 14,
-              }}
-            >
+        {/* OSINT 标记（受 layers.osint 控制）*/}
+        {layers.osint &&
+          pts.osint.map((ev) => {
+            const c = confColor(ev.confidence);
+            return (
               <div
+                key={ev.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOsintSelect(ev);
+                  setSelectedNews(null);
+                }}
                 style={{
-                  width: 16,
-                  height: 16,
-                  borderRadius: "50%",
-                  background: `${c}22`,
-                  border: `1.5px dashed ${c}88`,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 8,
-                  color: c,
-                  fontFamily: "JetBrains Mono",
-                  fontWeight: 700,
-                  boxShadow: `0 0 8px ${c}44`,
+                  position: "absolute",
+                  left: ev.x,
+                  top: ev.y,
+                  transform: "translate(-50%,-50%)",
+                  pointerEvents: "auto",
+                  cursor: "pointer",
+                  zIndex: 14,
                 }}
               >
-                {Math.round(ev.confidence * 100)}
+                <div
+                  style={{
+                    width: 16,
+                    height: 16,
+                    borderRadius: "50%",
+                    background: `${c}22`,
+                    border: `1.5px dashed ${c}88`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 8,
+                    color: c,
+                    fontFamily: "JetBrains Mono",
+                    fontWeight: 700,
+                    boxShadow: `0 0 8px ${c}44`,
+                  }}
+                >
+                  {Math.round(ev.confidence * 100)}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
       </div>
 
       <style>{`
         @keyframes sitePulse {
-          0%  { transform:translate(-50%,-50%) scale(.82); opacity:.85; }
-          70% { transform:translate(-50%,-50%) scale(1.38); opacity:0; }
-          100%{ transform:translate(-50%,-50%) scale(1.38); opacity:0; }
+          0%  {transform:translate(-50%,-50%) scale(.82);opacity:.85;}
+          70% {transform:translate(-50%,-50%) scale(1.38);opacity:0;}
+          100%{transform:translate(-50%,-50%) scale(1.38);opacity:0;}
         }
-        .cesium-widget,.cesium-widget canvas,.cesium-viewer,.cesium-viewer-cesiumWidgetContainer { width:100%;height:100%; }
-        .cesium-widget canvas:focus { outline:none; }
-        .cesium-viewer-bottom { display:none !important; }
+        .cesium-widget,.cesium-widget canvas,.cesium-viewer,.cesium-viewer-cesiumWidgetContainer{width:100%;height:100%;}
+        .cesium-widget canvas:focus{outline:none;}
+        .cesium-viewer-bottom{display:none!important;}
       `}</style>
 
       <NewsModal news={selectedNews} onClose={() => setSelectedNews(null)} />
@@ -1196,50 +1998,122 @@ function SiteMap({ sites, selectedId, onSelect, osintEvents, onOsintSelect }) {
   );
 }
 
-// ── SitePackage（主组件） ─────────────────────────────────────
+// ── Section ───────────────────────────────────────────────────
+function Section({ label, right, children }) {
+  return (
+    <div
+      style={{
+        marginBottom: 14,
+        paddingBottom: 14,
+        borderBottom: "1px solid #1a2d45",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 8,
+        }}
+      >
+        <div style={{ fontSize: 9, color: "#64748b", letterSpacing: "0.1em" }}>
+          {label}
+        </div>
+        {right}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SitePackage — 主组件
+// ══════════════════════════════════════════════════════════════
 export default function SitePackage() {
   const { siteId } = useParams();
   const navigate = useNavigate();
-  const [selectedId, setSelectedId] = useState(siteId ?? SITES[0].id);
+
+  // 专题
+  const [theaterId, setTheaterId] = useState("iran");
+  const theater = THEATERS.find((t) => t.id === theaterId) ?? THEATERS[0];
+  const sites = theater.sites;
+  const newsMarkers = theater.newsMarkers ?? [];
+  const osintEvents = theater.osintEvents ?? [];
+
+  // 点位
+  const [selectedId, setSelectedId] = useState(sites[0]?.id ?? null);
   const [imgIdx, setImgIdx] = useState(0);
   const [selectedOsint, setSelectedOsint] = useState(null);
 
-  const site = SITES.find((s) => s.id === selectedId) ?? SITES[0];
-  const color = scoreColor(site.combatScore);
+  // 图层状态
+  const [layers, setLayers] = useState({
+    basemap: "combat", // "own" | "combat"
+    sites: true,
+    news: true,
+    osint: true,
+  });
+  const [layerPanelOpen, setLayerPanelOpen] = useState(false);
+
+  const site = sites.find((s) => s.id === selectedId) ?? sites[0];
+  const color = scoreColor(site?.combatScore ?? 0);
 
   useEffect(() => {
     if (siteId) setSelectedId(siteId);
     setImgIdx(0);
   }, [siteId]);
 
+  const handleTheaterChange = useCallback((newId) => {
+    setTheaterId(newId);
+    const t = THEATERS.find((th) => th.id === newId);
+    if (t?.sites?.length) setSelectedId(t.sites[0].id);
+    setImgIdx(0);
+    setSelectedOsint(null);
+  }, []);
+
   const selectSite = (id) => {
     setSelectedId(id);
     setImgIdx(0);
     setSelectedOsint(null);
   };
+
+  // 点击地图空白关闭图层面板
+  const handleMapClick = useCallback(() => {
+    setLayerPanelOpen(false);
+  }, []);
+
+  if (!site) return null;
   const svTag =
     { S: "#ef4444", A: "#f59e0b" }[site.strategicValue] ?? "#22c55e";
 
   return (
     <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
-      <BaseList sites={SITES} selectedId={selectedId} onSelect={selectSite} />
+      <BaseList
+        sites={sites}
+        selectedId={selectedId}
+        onSelect={selectSite}
+        theaterId={theaterId}
+        onTheaterChange={handleTheaterChange}
+      />
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         {/* 地图区 */}
-        <div style={{ flex: 1, position: "relative" }}>
+        <div style={{ flex: 1, position: "relative" }} onClick={handleMapClick}>
           <SiteMap
-            sites={SITES}
+            sites={sites}
             selectedId={selectedId}
             onSelect={selectSite}
-            osintEvents={OSINT_EVENTS}
+            osintEvents={osintEvents}
+            newsMarkers={newsMarkers}
             onOsintSelect={(ev) => setSelectedOsint(ev)}
+            theaterCamera={theater.camera}
+            layers={layers}
           />
           <OsintCard
             event={selectedOsint}
             onClose={() => setSelectedOsint(null)}
           />
 
-          {/* 图例 */}
+          {/* 图例（左上）*/}
           <div
             style={{
               position: "absolute",
@@ -1253,6 +2127,32 @@ export default function SitePackage() {
               backdropFilter: "blur(8px)",
             }}
           >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                marginBottom: 10,
+                paddingBottom: 8,
+                borderBottom: "1px solid #0d1a2e",
+              }}
+            >
+              <span style={{ fontSize: 14 }}>{theater.flag}</span>
+              <div>
+                <div
+                  style={{
+                    fontSize: 8,
+                    color: "#0ea5e9",
+                    letterSpacing: "0.12em",
+                  }}
+                >
+                  ACTIVE THEATER
+                </div>
+                <div style={{ fontSize: 9, color: "#e2e8f0", fontWeight: 600 }}>
+                  {theater.labelEn}
+                </div>
+              </div>
+            </div>
             <div
               style={{
                 fontSize: 9,
@@ -1289,9 +2189,49 @@ export default function SitePackage() {
                 <span style={{ color: c }}>{l}</span>
               </div>
             ))}
+            {/* 当前底图指示 */}
+            <div
+              style={{
+                marginTop: 8,
+                paddingTop: 8,
+                borderTop: "1px solid #0d1a2e",
+                fontSize: 8,
+                color: "#334155",
+                letterSpacing: "0.06em",
+              }}
+            >
+              {layers.basemap === "combat"
+                ? "🗺 作战绘制图层"
+                : "🛰 自有底图 + 路网"}
+            </div>
           </div>
 
-          {/* 时间轴 */}
+          {/* ── 图层控制区（左下）─────────────────────────────── */}
+          <div
+            style={{ position: "absolute", bottom: 84, left: 12, zIndex: 1100 }}
+            onClick={(e) => e.stopPropagation()} // 阻止冒泡，防止点面板内部关闭面板
+          >
+            {/* 图层面板（在按钮上方弹出）*/}
+            {layerPanelOpen && (
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: "calc(100% + 8px)",
+                  left: 0,
+                }}
+              >
+                <LayerPanel layers={layers} onLayersChange={setLayers} />
+              </div>
+            )}
+            {/* 触发按钮 */}
+            <LayerToggleButton
+              open={layerPanelOpen}
+              onClick={() => setLayerPanelOpen((o) => !o)}
+              layers={layers}
+            />
+          </div>
+
+          {/* 时间轴（底部）*/}
           <div
             style={{
               position: "absolute",
@@ -1364,7 +2304,6 @@ export default function SitePackage() {
             padding: 16,
           }}
         >
-          {/* 头部 */}
           <div
             style={{
               marginBottom: 14,
@@ -1426,8 +2365,6 @@ export default function SitePackage() {
               <RadarChart site={site} />
             </div>
           </Section>
-
-          {/* 点位影像 */}
           <Section
             label="点位影像"
             right={
@@ -1489,7 +2426,6 @@ export default function SitePackage() {
               {site.imagery[imgIdx]?.desc}
             </div>
           </Section>
-
           <Section label="设施损毁评估">
             <FacilitiesList facilities={site.facilities} />
           </Section>
@@ -1501,34 +2437,6 @@ export default function SitePackage() {
       </div>
 
       <style>{`@keyframes scanline{0%{top:0}100%{top:100%}}`}</style>
-    </div>
-  );
-}
-
-// ── Section 容器（消除重复的 borderBottom 区块样式） ──────────
-function Section({ label, right, children }) {
-  return (
-    <div
-      style={{
-        marginBottom: 14,
-        paddingBottom: 14,
-        borderBottom: "1px solid #1a2d45",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 8,
-        }}
-      >
-        <div style={{ fontSize: 9, color: "#64748b", letterSpacing: "0.1em" }}>
-          {label}
-        </div>
-        {right}
-      </div>
-      {children}
     </div>
   );
 }
