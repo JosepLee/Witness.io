@@ -76,8 +76,12 @@ function LayerPanel({ layers, onLayersChange }) {
       desc: "CartoDB 暗色矢量底图",
       icon: "🗺",
     },
-    { id: "own", label: " “吉林一号” 星座全球底图", desc: "卫星影像 + 天地图路网", icon: "🛰" },
-    
+    {
+      id: "own",
+      label: " “吉林一号” 星座全球底图",
+      desc: "卫星影像 + 天地图路网",
+      icon: "🛰",
+    },
   ];
   const overlayItems = [
     {
@@ -787,7 +791,14 @@ function TheaterSwitcher({ currentId, onChange, theaters = [] }) {
 // ══════════════════════════════════════════════════════════════
 //  BaseList
 // ══════════════════════════════════════════════════════════════
-function BaseList({ sites, selectedId, onSelect, theaterId, onTheaterChange, theaters = [] }) {
+function BaseList({
+  sites,
+  selectedId,
+  onSelect,
+  theaterId,
+  onTheaterChange,
+  theaters = [],
+}) {
   const [filter, setFilter] = useState("all");
   const FILTERS = [
     ["all", "全部"],
@@ -814,7 +825,11 @@ function BaseList({ sites, selectedId, onSelect, theaterId, onTheaterChange, the
         overflow: "hidden",
       }}
     >
-      <TheaterSwitcher currentId={theaterId} onChange={onTheaterChange} theaters={theaters} />
+      <TheaterSwitcher
+        currentId={theaterId}
+        onChange={onTheaterChange}
+        theaters={theaters}
+      />
       <div style={{ padding: "10px 14px", borderBottom: "1px solid #1a2d45" }}>
         <div
           style={{
@@ -2053,15 +2068,13 @@ export default function SitePackage() {
 
   // 切换专题时加载基地列表
   useEffect(() => {
-    setSites([]);
-    setSiteDetail(null);
-    setTimeline([]);
     fetch(`/api/theaters/${theaterId}/sites`)
       .then((r) => r.json())
       .then((data) => {
         setSites(data);
         setSelectedId(data[0]?.id ?? null);
         setImgIdx(0);
+        setSelectedOsint(null);
       })
       .catch(console.error);
   }, [theaterId]);
@@ -2069,7 +2082,6 @@ export default function SitePackage() {
   // 选中基地时加载详情和时间轴
   useEffect(() => {
     if (!selectedId) return;
-    setSiteDetail(null);
     setTimeline([]);
     fetch(`/api/sites/${selectedId}`)
       .then((r) => r.json())
@@ -2125,14 +2137,38 @@ export default function SitePackage() {
     setLayerPanelOpen(false);
   }, []);
 
-  if (!site) return null;
+  if (!site)
+    return (
+      <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
+        <BaseList
+          sites={sites}
+          selectedId={selectedId}
+          onSelect={selectSite}
+          theaterId={theaterId}
+          onTheaterChange={handleTheaterChange}
+          theaters={theaters}
+        />
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#334155",
+            fontSize: 12,
+          }}
+        >
+          加载中...
+        </div>
+      </div>
+    );
 
   // 当前选中的影像条目（时间轴 API 或 score_json 内嵌 imagery 的回退）
-  const activeImgItems = timeline.length > 0 ? timeline : site.imagery ?? [];
+  const activeImgItems = timeline.length > 0 ? timeline : (site.imagery ?? []);
   const activeImg = activeImgItems[imgIdx] ?? activeImgItems[0] ?? {};
   const activeImgDate = activeImg.create_time
     ? activeImg.create_time.split(" ")[0]
-    : activeImg.date ?? "";
+    : (activeImg.date ?? "");
   const activeImgDesc = activeImg.desc ?? "—";
   const activeImgScore = activeImg.score ?? 0.85;
 
@@ -2316,40 +2352,44 @@ export default function SitePackage() {
             <div
               style={{ display: "flex", gap: 8, flex: 1, overflowX: "auto" }}
             >
-              {(timeline.length > 0 ? timeline : site?.imagery ?? []).map((item, i) => {
-                const itemDate = item.create_time
-                  ? item.create_time.split(" ")[0]
-                  : item.date;
-                const itemLabel = item.label ?? `影像 #${item.image_id}`;
-                return (
-                  <div
-                    key={item.id ?? i}
-                    onClick={() => setImgIdx(i)}
-                    style={{
-                      flexShrink: 0,
-                      padding: "8px 14px",
-                      borderRadius: 3,
-                      cursor: "pointer",
-                      background: imgIdx === i ? `${color}22` : "#080f1e",
-                      border: `1px solid ${imgIdx === i ? color : "#1a2d45"}`,
-                      transition: "all 0.15s",
-                    }}
-                  >
+              {(timeline.length > 0 ? timeline : (site?.imagery ?? [])).map(
+                (item, i) => {
+                  const itemDate = item.create_time
+                    ? item.create_time.split(" ")[0]
+                    : item.date;
+                  const itemLabel = item.label ?? `影像 #${item.image_id}`;
+                  return (
                     <div
+                      key={item.id ?? i}
+                      onClick={() => setImgIdx(i)}
                       style={{
-                        fontSize: 10,
-                        fontWeight: 700,
-                        color: imgIdx === i ? color : "#94a3b8",
+                        flexShrink: 0,
+                        padding: "8px 14px",
+                        borderRadius: 3,
+                        cursor: "pointer",
+                        background: imgIdx === i ? `${color}22` : "#080f1e",
+                        border: `1px solid ${imgIdx === i ? color : "#1a2d45"}`,
+                        transition: "all 0.15s",
                       }}
                     >
-                      {itemDate}
+                      <div
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: imgIdx === i ? color : "#94a3b8",
+                        }}
+                      >
+                        {itemDate}
+                      </div>
+                      <div
+                        style={{ fontSize: 9, color: "#64748b", marginTop: 2 }}
+                      >
+                        {itemLabel}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 9, color: "#64748b", marginTop: 2 }}>
-                      {itemLabel}
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                },
+              )}
             </div>
           </div>
         </div>
