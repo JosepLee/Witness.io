@@ -42,9 +42,36 @@ const getBaseMapUrl = () =>
   window.__USE_BASEMAP_PROXY__
     ? "/worldmap/getdata?x={x}&y={y}&l={z}"
     : `http://${window.BASE_MAP_ADDRESS ?? import.meta.env?.VITE_BASE_MAP_ADDRESS ?? "124.70.78.85"}:${window.BASE_MAP_PORT ?? import.meta.env?.VITE_BASE_MAP_PORT ?? "9998"}/getdata?x={x}&y={y}&l={z}`;
-// CartoDB 暗色作战底图
 const COMBAT_MAP_URL =
   "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+
+// 卫星影像：直接访问真实 IP:port（由 vite.config define 注入，或回退到默认值）
+const SAT_MK = "15a2cd5b39d410616803f21d639ab9d0";
+const SAT_TK = "82a2673880cdfd3e75a63f2b5ad42ff4";
+const SAT_HOST =
+  typeof __SAT_HOST__ !== "undefined" ? __SAT_HOST__ : "1.94.249.221";
+const SAT_PORT = typeof __SAT_PORT__ !== "undefined" ? __SAT_PORT__ : "8095";
+const SAT_BASE = `http://${SAT_HOST}:${SAT_PORT}`;
+
+const getSatUrl = (numericId, timeStr) => {
+  const t = encodeURIComponent(timeStr);
+  return `${SAT_BASE}/targetpointmap/getImage/{z}/{x}/{y}?mk=${SAT_MK}&tk=${SAT_TK}&pointId=${numericId}&time=${t}&size=256`;
+};
+
+// 探测用（拼具体 z/x/y，不用模板占位符）
+const getSatProbeUrl = (numericId, timeStr, z, x, y) => {
+  const t = encodeURIComponent(timeStr);
+  return `${SAT_BASE}/targetpointmap/getImage/${z}/${x}/${y}?mk=${SAT_MK}&tk=${SAT_TK}&pointId=${numericId}&time=${t}&size=256`;
+};
+
+// 经纬度 → 瓦片 x/y（Web Mercator XYZ）
+function lngLatToTile(lng, lat, z) {
+  const n = Math.pow(2, z); // 该层级列数
+  const rows = Math.pow(2, z - 1); // 4326 行数是列数的一半
+  const x = Math.floor(((lng + 180) / 360) * n);
+  const y = Math.floor(((90 - lat) / 180) * rows);
+  return { x, y };
+}
 
 // ── 坐标标准化 ────────────────────────────────────────────────
 const warnedCoords = new Set();
@@ -63,12 +90,9 @@ const normCoord = (item) => {
 };
 
 // ══════════════════════════════════════════════════════════════
-//  LayerPanel — 图层管理面板
+//  LayerPanel
 // ══════════════════════════════════════════════════════════════
 function LayerPanel({ layers, onLayersChange }) {
-  // layers = { basemap: "own"|"combat", sites: bool, news: bool, osint: bool }
-
-  // 分组定义
   const basemapOptions = [
     {
       id: "combat",
@@ -78,7 +102,7 @@ function LayerPanel({ layers, onLayersChange }) {
     },
     {
       id: "own",
-      label: " “吉林一号” 星座全球底图",
+      label: '"吉林一号" 星座全球底图',
       desc: "卫星影像 + 天地图路网",
       icon: "🛰",
     },
@@ -104,6 +128,13 @@ function LayerPanel({ layers, onLayersChange }) {
       desc: "开源情报 · 置信度标注",
       icon: "◈",
       color: "#0ea5e9",
+    },
+    {
+      id: "satellite",
+      label: "点位包影像",
+      desc: "点位影像 · 时间轴联动",
+      icon: "🛸",
+      color: "#8b5cf6",
     },
   ];
 
@@ -158,7 +189,6 @@ function LayerPanel({ layers, onLayersChange }) {
         if (!active) e.currentTarget.style.background = "transparent";
       }}
     >
-      {/* 单选圆点 */}
       <div
         style={{
           width: 14,
@@ -193,19 +223,11 @@ function LayerPanel({ layers, onLayersChange }) {
             fontSize: 10,
             color: active ? "#e2e8f0" : "#94a3b8",
             fontWeight: active ? 600 : 400,
-            letterSpacing: "0.02em",
           }}
         >
           {option.label}
         </div>
-        <div
-          style={{
-            fontSize: 8,
-            color: "#334155",
-            marginTop: 2,
-            letterSpacing: "0.04em",
-          }}
-        >
+        <div style={{ fontSize: 8, color: "#334155", marginTop: 2 }}>
           {option.desc}
         </div>
       </div>
@@ -245,13 +267,9 @@ function LayerPanel({ layers, onLayersChange }) {
           e.currentTarget.style.background = "rgba(255,255,255,0.03)";
       }}
       onMouseLeave={(e) => {
-        if (!checked)
-          e.currentTarget.style.background = checked
-            ? `${item.color}08`
-            : "transparent";
+        if (!checked) e.currentTarget.style.background = "transparent";
       }}
     >
-      {/* 复选框 */}
       <div
         style={{
           width: 14,
@@ -302,7 +320,6 @@ function LayerPanel({ layers, onLayersChange }) {
           {item.desc}
         </div>
       </div>
-      {/* 可见性图标 */}
       <div
         style={{
           flexShrink: 0,
@@ -319,7 +336,7 @@ function LayerPanel({ layers, onLayersChange }) {
   return (
     <div
       style={{
-        width: 226,
+        width: 230,
         background: "#040c18",
         border: "1px solid #1a2d45",
         borderRadius: 6,
@@ -329,7 +346,6 @@ function LayerPanel({ layers, onLayersChange }) {
         animation: "layerPanelIn 0.18s ease",
       }}
     >
-      {/* 面板标题 */}
       <div
         style={{
           padding: "10px 14px 8px",
@@ -398,8 +414,6 @@ function LayerPanel({ layers, onLayersChange }) {
           <span style={{ fontSize: 8, color: "#22c55e" }}>LIVE</span>
         </div>
       </div>
-
-      {/* 底图组 */}
       <GroupHeader
         icon="⬛"
         label="底图图层"
@@ -413,8 +427,6 @@ function LayerPanel({ layers, onLayersChange }) {
           onClick={() => onLayersChange({ ...layers, basemap: opt.id })}
         />
       ))}
-
-      {/* 标注组 */}
       <GroupHeader
         icon="📍"
         label="标注图层"
@@ -430,8 +442,6 @@ function LayerPanel({ layers, onLayersChange }) {
           }
         />
       ))}
-
-      {/* 底部统计 */}
       <div
         style={{
           padding: "7px 14px",
@@ -454,6 +464,7 @@ function LayerPanel({ layers, onLayersChange }) {
               sites: true,
               news: true,
               osint: true,
+              satellite: true,
             })
           }
           style={{
@@ -471,17 +482,16 @@ function LayerPanel({ layers, onLayersChange }) {
           重置
         </button>
       </div>
-
       <style>{`@keyframes layerPanelIn { from{opacity:0;transform:translateY(8px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} }`}</style>
     </div>
   );
 }
 
 // ══════════════════════════════════════════════════════════════
-//  LayerToggleButton — 左下角触发按钮
+//  LayerToggleButton
 // ══════════════════════════════════════════════════════════════
 function LayerToggleButton({ open, onClick, layers }) {
-  const activeOverlays = ["sites", "news", "osint"].filter(
+  const activeOverlays = ["sites", "news", "osint", "satellite"].filter(
     (k) => layers[k],
   ).length;
   return (
@@ -513,7 +523,6 @@ function LayerToggleButton({ open, onClick, layers }) {
         }
       }}
     >
-      {/* 图层堆叠图标 */}
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
         <rect
           x="1"
@@ -553,7 +562,6 @@ function LayerToggleButton({ open, onClick, layers }) {
       >
         图层
       </span>
-      {/* 激活徽章 */}
       <div
         style={{
           minWidth: 16,
@@ -583,7 +591,6 @@ function LayerToggleButton({ open, onClick, layers }) {
 function TheaterSwitcher({ currentId, onChange, theaters = [] }) {
   const [open, setOpen] = useState(false);
   const current = theaters.find((t) => t.id === currentId) ?? theaters[0] ?? {};
-
   return (
     <div
       style={{
@@ -662,7 +669,6 @@ function TheaterSwitcher({ currentId, onChange, theaters = [] }) {
           />
         </svg>
       </button>
-
       {open && (
         <div
           style={{
@@ -779,7 +785,6 @@ function TheaterSwitcher({ currentId, onChange, theaters = [] }) {
           </div>
         </div>
       )}
-
       <style>{`
         @keyframes theaterPulse { 0%{transform:scale(1);opacity:.9} 60%{transform:scale(2.2);opacity:0} 100%{transform:scale(2.2);opacity:0} }
         @keyframes dropDown { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
@@ -812,7 +817,6 @@ function BaseList({
     setFilter("all");
   }, [theaterId]);
   const theater = theaters.find((t) => t.id === theaterId) ?? theaters[0] ?? {};
-
   return (
     <div
       style={{
@@ -947,7 +951,7 @@ function BaseList({
   );
 }
 
-// ── 其余小组件（保持不变）────────────────────────────────────
+// ── 小组件 ────────────────────────────────────────────────────
 function RadarChart({ site }) {
   const S = 140,
     cx = 70,
@@ -1548,7 +1552,7 @@ function OsintCard({ event, onClose }) {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  SiteMap — Cesium 地图，接受 layers 状态控制图层显隐
+//  SiteMap
 // ══════════════════════════════════════════════════════════════
 function SiteMap({
   sites,
@@ -1559,11 +1563,12 @@ function SiteMap({
   onOsintSelect,
   theaterCamera,
   layers,
+  activeImgTime,
+  activeNumericId,
 }) {
   const sitesRef = useRef(sites);
   const newsRef = useRef(newsMarkers);
   const osintRef = useRef(osintEvents);
-
   useEffect(() => {
     sitesRef.current = sites;
   }, [sites]);
@@ -1578,14 +1583,18 @@ function SiteMap({
   const viewerRef = useRef(null);
   const cesiumRef = useRef(null);
   const handlerRef = useRef(null);
-  // 存储图层引用，用于动态显隐/切换
-  const layerRefsRef = useRef({ base: null, cia: null, combat: null });
+  const layerRefsRef = useRef({
+    base: null,
+    cia: null,
+    combat: null,
+    satellite: null,
+  });
 
   const [selectedNews, setSelectedNews] = useState(null);
   const [pts, setPts] = useState({ sites: [], news: [], osint: [] });
   const baseMapUrl = useMemo(getBaseMapUrl, []);
 
-  // ── Cesium 初始化（只执行一次）──────────────────────────────
+  // ── Cesium 初始化 ─────────────────────────────────────────
   useEffect(() => {
     let destroyed = false;
     async function init() {
@@ -1606,6 +1615,7 @@ function SiteMap({
         ScreenSpaceEventHandler,
         ScreenSpaceEventType,
         defined,
+        Rectangle,
       } = Cesium;
 
       const viewer = new Viewer(containerRef.current, {
@@ -1630,7 +1640,6 @@ function SiteMap({
 
       viewer.imageryLayers.removeAll();
 
-      // ① 自有底图（默认显示）
       const baseProvider = new UrlTemplateImageryProvider({
         url: baseMapUrl,
         tilingScheme: new GeographicTilingScheme({
@@ -1644,11 +1653,9 @@ function SiteMap({
         console.error("[worldmap]", e),
       );
       const baseLayer = viewer.imageryLayers.addImageryProvider(baseProvider);
-      baseLayer.alpha = baseLayer.brightness = baseLayer.contrast = 1;
       baseLayer.show = false;
       layerRefsRef.current.base = baseLayer;
 
-      // ② 天地图 cia_w 路网（随自有底图同显隐）
       const ciaProvider = new UrlTemplateImageryProvider({
         url: getTiandituUrl(),
         tilingScheme: new WebMercatorTilingScheme(),
@@ -1657,11 +1664,9 @@ function SiteMap({
         enablePickFeatures: false,
       });
       const ciaLayer = viewer.imageryLayers.addImageryProvider(ciaProvider);
-      ciaLayer.alpha = 1;
       ciaLayer.show = false;
       layerRefsRef.current.cia = ciaLayer;
 
-      // ③ CartoDB 作战绘制底图（默认隐藏）
       const combatProvider = new UrlTemplateImageryProvider({
         url: COMBAT_MAP_URL,
         subdomains: ["a", "b", "c", "d"],
@@ -1674,7 +1679,120 @@ function SiteMap({
       combatLayer.show = true;
       layerRefsRef.current.combat = combatLayer;
 
-      // 场景风格
+      layerRefsRef.current.satellite = null;
+
+      // ── 卫星影像加载（直接访问真实 IP，自动探测层级）──────
+      viewer.__loadSatelliteLayer__ = async (numericId, timeStr, lat, lng) => {
+        const lr = layerRefsRef.current;
+        if (lr.satellite) {
+          viewer.imageryLayers.remove(lr.satellite, true);
+          lr.satellite = null;
+          console.log("[satellite] 旧图层已移除");
+        }
+        if (!numericId || !timeStr || lat == null || lng == null) {
+          console.log("[satellite] 参数不完整，跳过", {
+            numericId,
+            timeStr,
+            lat,
+            lng,
+          });
+          return;
+        }
+        console.log("[satellite] 开始加载", {
+          numericId,
+          timeStr,
+          lat,
+          lng,
+          SAT_BASE,
+        });
+
+        // 探测有效层级
+        let validZoom = null;
+        for (let z = 10; z <= 15; z++) {
+          const { x, y } = lngLatToTile(lng, lat, z);
+          const testUrl = getSatProbeUrl(numericId, timeStr, z, x, y);
+          console.log(`[satellite] 探测 z=${z} x=${x} y=${y} → ${testUrl}`);
+          try {
+            const res = await fetch(testUrl);
+            const ct = res.headers.get("content-type") ?? "";
+            console.log(
+              `[satellite] z=${z} → status=${res.status} content-type=${ct}`,
+            );
+            if (res.ok && ct.includes("image")) {
+              validZoom = z;
+              console.log(`[satellite] ✅ 有效层级 z=${z}`);
+              break;
+            }
+          } catch (e) {
+            console.warn(`[satellite] z=${z} 请求异常:`, e.message);
+          }
+        }
+
+        if (validZoom === null) {
+          console.warn(
+            "[satellite] ❌ 未找到有效层级 pointId:",
+            numericId,
+            "time:",
+            timeStr,
+          );
+          return;
+        }
+
+        const delta = 0.06;
+        const rectangle = Rectangle.fromDegrees(
+          Math.max(lng - delta, -180),
+          Math.max(lat - delta, -90),
+          Math.min(lng + delta, 180),
+          Math.min(lat + delta, 90),
+        );
+        console.log("[satellite] rectangle ±0.06°:", {
+          w: lng - delta,
+          s: lat - delta,
+          e: lng + delta,
+          n: lat + delta,
+        });
+
+        const { GeographicTilingScheme, Ellipsoid } = cesiumRef.current;
+        const satProvider = new UrlTemplateImageryProvider({
+          url: getSatUrl(numericId, timeStr),
+          tilingScheme: new GeographicTilingScheme({
+            ellipsoid: Ellipsoid.WGS84,
+          }),
+          minimumLevel: validZoom,
+          maximumLevel: validZoom + 2,
+          enablePickFeatures: false,
+          rectangle,
+        });
+        satProvider.errorEvent.addEventListener((e) =>
+          console.warn("[satellite] tile err:", e),
+        );
+        const satLayer = viewer.imageryLayers.addImageryProvider(satProvider);
+        satLayer.alpha = 1;
+        lr.satellite = satLayer;
+        console.log(
+          "[satellite] ✅ 图层已添加，总图层数:",
+          viewer.imageryLayers.length,
+        );
+
+        const zoomToHeight = {
+          10: 80000,
+          11: 40000,
+          12: 20000,
+          13: 10000,
+          14: 5000,
+          15: 2500,
+        };
+        // const flyHeight = zoomToHeight[validZoom] ?? 40000;
+        const flyHeight = 15000; // 固定高度，避免过度放大导致图像模糊
+        console.log(
+          `[satellite] flyTo lng=${lng} lat=${lat} height=${flyHeight}`,
+        );
+        viewer.camera.flyTo({
+          destination: Cartesian3.fromDegrees(lng, lat, flyHeight),
+          duration: 1.5,
+        });
+      };
+
       Object.assign(viewer.scene, { fxaa: true });
       viewer.scene.skyBox.show =
         viewer.scene.moon.show =
@@ -1683,7 +1801,6 @@ function SiteMap({
       viewer.scene.backgroundColor = viewer.scene.globe.baseColor =
         Color.fromCssColorString("#040810");
       viewer.scene.globe.enableLighting = false;
-
       viewer.camera.flyTo({
         destination: Cartesian3.fromDegrees(
           theaterCamera.lng,
@@ -1693,7 +1810,6 @@ function SiteMap({
         duration: 0,
       });
 
-      // overlay 更新
       const updateOverlays = () => {
         if (!viewerRef.current || !cesiumRef.current) return;
         const {
@@ -1756,7 +1872,6 @@ function SiteMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseMapUrl]);
 
-  // ── 专题切换时飞行 ───────────────────────────────────────────
   useEffect(() => {
     if (!viewerRef.current || !cesiumRef.current) return;
     const { Cartesian3 } = cesiumRef.current;
@@ -1770,19 +1885,9 @@ function SiteMap({
     });
   }, [theaterCamera]);
 
-  // ── 动态数据同步 ─────────────────────────────────────────────
-  useEffect(() => {
-    if (!viewerRef.current) return;
-    viewerRef.current.__sites__ = sites;
-    viewerRef.current.__news__ = newsMarkers;
-    viewerRef.current.__osint__ = osintEvents;
-    viewerRef.current.__updateOverlays__?.();
-  }, [sites, newsMarkers, osintEvents]);
-
-  // ── 选中点位飞行 ─────────────────────────────────────────────
   useEffect(() => {
     if (!viewerRef.current || !cesiumRef.current || !selectedId) return;
-    const site = sites.find((s) => s.id === selectedId);
+    const site = sitesRef.current.find((s) => s.id === selectedId);
     if (!site) return;
     const coord = normCoord(site);
     if (!coord) return;
@@ -1792,20 +1897,42 @@ function SiteMap({
       duration: 1.2,
     });
     viewerRef.current.__updateOverlays__?.();
-  }, [selectedId, sites]);
+  }, [selectedId]);
 
-  // ── 图层显隐控制（响应 layers 状态变化）─────────────────────
   useEffect(() => {
     const lr = layerRefsRef.current;
     if (!lr.base || !lr.cia || !lr.combat) return;
-
     const isOwn = layers.basemap === "own";
-    const isCombat = layers.basemap === "combat";
-
     lr.base.show = isOwn;
     lr.cia.show = isOwn;
-    lr.combat.show = isCombat;
+    lr.combat.show = !isOwn;
   }, [layers.basemap]);
+
+  useEffect(() => {
+    if (!viewerRef.current?.__loadSatelliteLayer__) return;
+    if (layers.satellite && activeNumericId && activeImgTime) {
+      const currentSite = sitesRef.current.find((s) => s.id === selectedId);
+      console.log("[satellite] useEffect 触发", {
+        activeNumericId,
+        activeImgTime,
+        site: currentSite
+          ? { lat: currentSite.lat, lng: currentSite.lng }
+          : null,
+      });
+      if (!currentSite?.lat || !currentSite?.lng) {
+        console.warn("[satellite] 点位无经纬度，跳过");
+        return;
+      }
+      viewerRef.current.__loadSatelliteLayer__(
+        activeNumericId,
+        activeImgTime,
+        currentSite.lat,
+        currentSite.lng,
+      );
+    } else {
+      viewerRef.current.__loadSatelliteLayer__(null, null, null, null);
+    }
+  }, [selectedId, activeNumericId, activeImgTime, layers.satellite]);
 
   return (
     <div
@@ -1817,8 +1944,6 @@ function SiteMap({
       }}
     >
       <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
-
-      {/* DOM overlay */}
       <div
         style={{
           position: "absolute",
@@ -1827,7 +1952,6 @@ function SiteMap({
           zIndex: 600,
         }}
       >
-        {/* 基地点位（受 layers.sites 控制）*/}
         {layers.sites &&
           pts.sites.map((site) => {
             const c = statusColor(site.status),
@@ -1908,8 +2032,6 @@ function SiteMap({
               </div>
             );
           })}
-
-        {/* 新闻标记（受 layers.news 控制）*/}
         {layers.news &&
           pts.news.map((item) => {
             const tc = TYPE_COLOR[item.type] ?? "#94a3b8";
@@ -1950,8 +2072,6 @@ function SiteMap({
               </div>
             );
           })}
-
-        {/* OSINT 标记（受 layers.osint 控制）*/}
         {layers.osint &&
           pts.osint.map((ev) => {
             const c = confColor(ev.confidence);
@@ -1996,7 +2116,6 @@ function SiteMap({
             );
           })}
       </div>
-
       <style>{`
         @keyframes sitePulse {
           0%  {transform:translate(-50%,-50%) scale(.82);opacity:.85;}
@@ -2007,13 +2126,11 @@ function SiteMap({
         .cesium-widget canvas:focus{outline:none;}
         .cesium-viewer-bottom{display:none!important;}
       `}</style>
-
       <NewsModal news={selectedNews} onClose={() => setSelectedNews(null)} />
     </div>
   );
 }
 
-// ── Section ───────────────────────────────────────────────────
 function Section({ label, right, children }) {
   return (
     <div
@@ -2048,7 +2165,6 @@ export default function SitePackage() {
   const { siteId } = useParams();
   const navigate = useNavigate();
 
-  // 专题 & 点位 state（必须在 useEffect 前声明）
   const [theaterId, setTheaterId] = useState("iran");
   const [theaters, setTheaters] = useState([]);
   const [sites, setSites] = useState([]);
@@ -2057,8 +2173,15 @@ export default function SitePackage() {
   const [selectedId, setSelectedId] = useState(null);
   const [imgIdx, setImgIdx] = useState(0);
   const [selectedOsint, setSelectedOsint] = useState(null);
+  const [layers, setLayers] = useState({
+    basemap: "combat",
+    sites: true,
+    news: true,
+    osint: true,
+    satellite: true,
+  });
+  const [layerPanelOpen, setLayerPanelOpen] = useState(false);
 
-  // 加载专题列表
   useEffect(() => {
     fetch("/api/theaters")
       .then((r) => r.json())
@@ -2066,7 +2189,6 @@ export default function SitePackage() {
       .catch(console.error);
   }, []);
 
-  // 切换专题时加载基地列表
   useEffect(() => {
     fetch(`/api/theaters/${theaterId}/sites`)
       .then((r) => r.json())
@@ -2079,7 +2201,6 @@ export default function SitePackage() {
       .catch(console.error);
   }, [theaterId]);
 
-  // 选中基地时加载详情和时间轴
   useEffect(() => {
     if (!selectedId) return;
     setTimeline([]);
@@ -2102,16 +2223,6 @@ export default function SitePackage() {
   };
   const newsMarkers = [];
   const osintEvents = [];
-
-  // 图层状态
-  const [layers, setLayers] = useState({
-    basemap: "combat", // "own" | "combat"
-    sites: true,
-    news: true,
-    osint: true,
-  });
-  const [layerPanelOpen, setLayerPanelOpen] = useState(false);
-
   const site = siteDetail;
   const color = scoreColor(site?.combatScore ?? 0);
 
@@ -2125,17 +2236,33 @@ export default function SitePackage() {
     setImgIdx(0);
     setSelectedOsint(null);
   }, []);
-
   const selectSite = (id) => {
     setSelectedId(id);
     setImgIdx(0);
     setSelectedOsint(null);
   };
+  const handleMapClick = useCallback(() => setLayerPanelOpen(false), []);
 
-  // 点击地图空白关闭图层面板
-  const handleMapClick = useCallback(() => {
-    setLayerPanelOpen(false);
-  }, []);
+  const activeImgItems = timeline.length > 0 ? timeline : (site?.imagery ?? []);
+  const activeImg = activeImgItems[imgIdx] ?? activeImgItems[0] ?? {};
+  const activeImgDate = activeImg.create_time
+    ? activeImg.create_time.split(" ")[0]
+    : (activeImg.date ?? "");
+  const activeImgDesc = activeImg.desc ?? "—";
+  const activeImgScore = activeImg.score ?? 0.85;
+  const activeImgTime = activeImg.create_time
+    ? activeImg.create_time.replace(" ", "T")
+    : null;
+  const activeNumericId = site?.numeric_id ?? site?.numericId ?? null;
+
+  useEffect(() => {
+    console.log("[SitePackage] 影像参数:", {
+      selectedId,
+      activeNumericId,
+      activeImgTime,
+      imgIdx,
+    });
+  }, [selectedId, activeNumericId, activeImgTime, imgIdx]);
 
   if (!site)
     return (
@@ -2163,15 +2290,6 @@ export default function SitePackage() {
       </div>
     );
 
-  // 当前选中的影像条目（时间轴 API 或 score_json 内嵌 imagery 的回退）
-  const activeImgItems = timeline.length > 0 ? timeline : (site.imagery ?? []);
-  const activeImg = activeImgItems[imgIdx] ?? activeImgItems[0] ?? {};
-  const activeImgDate = activeImg.create_time
-    ? activeImg.create_time.split(" ")[0]
-    : (activeImg.date ?? "");
-  const activeImgDesc = activeImg.desc ?? "—";
-  const activeImgScore = activeImg.score ?? 0.85;
-
   const svTag =
     { S: "#ef4444", A: "#f59e0b" }[site.strategicValue] ?? "#22c55e";
 
@@ -2185,9 +2303,7 @@ export default function SitePackage() {
         onTheaterChange={handleTheaterChange}
         theaters={theaters}
       />
-
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        {/* 地图区 */}
         <div style={{ flex: 1, position: "relative" }} onClick={handleMapClick}>
           <SiteMap
             sites={sites}
@@ -2198,13 +2314,14 @@ export default function SitePackage() {
             onOsintSelect={(ev) => setSelectedOsint(ev)}
             theaterCamera={theater.camera}
             layers={layers}
+            activeImgTime={activeImgTime}
+            activeNumericId={activeNumericId}
           />
           <OsintCard
             event={selectedOsint}
             onClose={() => setSelectedOsint(null)}
           />
 
-          {/* 图例（左上）*/}
           <div
             style={{
               position: "absolute",
@@ -2280,7 +2397,6 @@ export default function SitePackage() {
                 <span style={{ color: c }}>{l}</span>
               </div>
             ))}
-            {/* 当前底图指示 */}
             <div
               style={{
                 marginTop: 8,
@@ -2291,18 +2407,16 @@ export default function SitePackage() {
                 letterSpacing: "0.06em",
               }}
             >
-              {layers.basemap === "combat"
-                ? "🗺 作战绘制图层"
-                : "🛰 自有底图 + 路网"}
+              {layers.basemap === "own"
+                ? "🛰 自有底图 + 路网"
+                : "🗺 作战绘制图层"}
             </div>
           </div>
 
-          {/* ── 图层控制区（左下）─────────────────────────────── */}
           <div
             style={{ position: "absolute", bottom: 84, left: 12, zIndex: 1100 }}
-            onClick={(e) => e.stopPropagation()} // 阻止冒泡，防止点面板内部关闭面板
+            onClick={(e) => e.stopPropagation()}
           >
-            {/* 图层面板（在按钮上方弹出）*/}
             {layerPanelOpen && (
               <div
                 style={{
@@ -2314,7 +2428,6 @@ export default function SitePackage() {
                 <LayerPanel layers={layers} onLayersChange={setLayers} />
               </div>
             )}
-            {/* 触发按钮 */}
             <LayerToggleButton
               open={layerPanelOpen}
               onClick={() => setLayerPanelOpen((o) => !o)}
@@ -2322,7 +2435,6 @@ export default function SitePackage() {
             />
           </div>
 
-          {/* 时间轴（底部）*/}
           <div
             style={{
               position: "absolute",
@@ -2352,49 +2464,46 @@ export default function SitePackage() {
             <div
               style={{ display: "flex", gap: 8, flex: 1, overflowX: "auto" }}
             >
-              {(timeline.length > 0 ? timeline : (site?.imagery ?? [])).map(
-                (item, i) => {
-                  const itemDate = item.create_time
-                    ? item.create_time.split(" ")[0]
-                    : item.date;
-                  const itemLabel = item.label ?? `影像 #${item.image_id}`;
-                  return (
+              {activeImgItems.map((item, i) => {
+                const itemDate = item.create_time
+                  ? item.create_time.split(" ")[0]
+                  : item.date;
+                const itemLabel = item.label ?? `影像 #${item.image_id}`;
+                return (
+                  <div
+                    key={item.id ?? i}
+                    onClick={() => setImgIdx(i)}
+                    style={{
+                      flexShrink: 0,
+                      padding: "8px 14px",
+                      borderRadius: 3,
+                      cursor: "pointer",
+                      background: imgIdx === i ? `${color}22` : "#080f1e",
+                      border: `1px solid ${imgIdx === i ? color : "#1a2d45"}`,
+                      transition: "all 0.15s",
+                    }}
+                  >
                     <div
-                      key={item.id ?? i}
-                      onClick={() => setImgIdx(i)}
                       style={{
-                        flexShrink: 0,
-                        padding: "8px 14px",
-                        borderRadius: 3,
-                        cursor: "pointer",
-                        background: imgIdx === i ? `${color}22` : "#080f1e",
-                        border: `1px solid ${imgIdx === i ? color : "#1a2d45"}`,
-                        transition: "all 0.15s",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: imgIdx === i ? color : "#94a3b8",
                       }}
                     >
-                      <div
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          color: imgIdx === i ? color : "#94a3b8",
-                        }}
-                      >
-                        {itemDate}
-                      </div>
-                      <div
-                        style={{ fontSize: 9, color: "#64748b", marginTop: 2 }}
-                      >
-                        {itemLabel}
-                      </div>
+                      {itemDate}
                     </div>
-                  );
-                },
-              )}
+                    <div
+                      style={{ fontSize: 9, color: "#64748b", marginTop: 2 }}
+                    >
+                      {itemLabel}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
 
-        {/* 右侧详情 */}
         <div
           style={{
             width: 340,
@@ -2455,9 +2564,7 @@ export default function SitePackage() {
             </div>
             <DamageStatus status={site.status} />
           </div>
-
           <DualScore aci={site.aci} dci={site.dci} />
-
           <Section label="能力趋势（7日）">
             <DualTrendChart dailyData={site.dailyData} />
           </Section>
@@ -2536,7 +2643,6 @@ export default function SitePackage() {
           />
         </div>
       </div>
-
       <style>{`@keyframes scanline{0%{top:0}100%{top:100%}}`}</style>
     </div>
   );
