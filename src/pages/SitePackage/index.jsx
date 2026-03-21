@@ -53,6 +53,7 @@ const SAT_HOST =
 const SAT_PORT = typeof __SAT_PORT__ !== "undefined" ? __SAT_PORT__ : "8095";
 const SAT_BASE = `http://${SAT_HOST}:${SAT_PORT}`;
 
+// 确认模板是 {z}/{x}/{y} 格式，Cesium 会自动替换
 const getSatUrl = (numericId, timeStr) => {
   const t = encodeURIComponent(timeStr);
   return `${SAT_BASE}/targetpointmap/getImage/{z}/{x}/{y}?mk=${SAT_MK}&tk=${SAT_TK}&pointId=${numericId}&time=${t}&size=256`;
@@ -1684,59 +1685,13 @@ function SiteMap({
       // ── 卫星影像加载（直接访问真实 IP，自动探测层级）──────
       viewer.__loadSatelliteLayer__ = async (numericId, timeStr, lat, lng) => {
         const lr = layerRefsRef.current;
+
+        // 移除旧图层
         if (lr.satellite) {
           viewer.imageryLayers.remove(lr.satellite, true);
           lr.satellite = null;
-          console.log("[satellite] 旧图层已移除");
         }
-        if (!numericId || !timeStr || lat == null || lng == null) {
-          console.log("[satellite] 参数不完整，跳过", {
-            numericId,
-            timeStr,
-            lat,
-            lng,
-          });
-          return;
-        }
-        console.log("[satellite] 开始加载", {
-          numericId,
-          timeStr,
-          lat,
-          lng,
-          SAT_BASE,
-        });
-
-        // 探测有效层级
-        let validZoom = null;
-        for (let z = 10; z <= 15; z++) {
-          const { x, y } = lngLatToTile(lng, lat, z);
-          const testUrl = getSatProbeUrl(numericId, timeStr, z, x, y);
-          console.log(`[satellite] 探测 z=${z} x=${x} y=${y} → ${testUrl}`);
-          try {
-            const res = await fetch(testUrl);
-            const ct = res.headers.get("content-type") ?? "";
-            console.log(
-              `[satellite] z=${z} → status=${res.status} content-type=${ct}`,
-            );
-            if (res.ok && ct.includes("image")) {
-              validZoom = z;
-              console.log(`[satellite] ✅ 有效层级 z=${z}`);
-              break;
-            }
-          } catch (e) {
-            console.warn(`[satellite] z=${z} 请求异常:`, e.message);
-          }
-        }
-
-        if (validZoom === null) {
-          console.warn(
-            "[satellite] ❌ 未找到有效层级 pointId:",
-            numericId,
-            "time:",
-            timeStr,
-          );
-          return;
-        }
+        if (!numericId || !timeStr || lat == null || lng == null) return;
 
         const delta = 0.06;
         const rectangle = Rectangle.fromDegrees(
@@ -1745,50 +1700,30 @@ function SiteMap({
           Math.min(lng + delta, 180),
           Math.min(lat + delta, 90),
         );
-        console.log("[satellite] rectangle ±0.06°:", {
-          w: lng - delta,
-          s: lat - delta,
-          e: lng + delta,
-          n: lat + delta,
-        });
 
-        const { GeographicTilingScheme, Ellipsoid } = cesiumRef.current;
         const satProvider = new UrlTemplateImageryProvider({
           url: getSatUrl(numericId, timeStr),
           tilingScheme: new GeographicTilingScheme({
             ellipsoid: Ellipsoid.WGS84,
           }),
-          minimumLevel: validZoom,
-          maximumLevel: validZoom + 2,
+          minimumLevel: 0, // ✅ 让 Cesium 自由决定请求哪层
+          maximumLevel: 18, // ✅ 放开上限
           enablePickFeatures: false,
           rectangle,
         });
+
+        // 404/无数据时 Cesium 自动透明，不需要额外处理
         satProvider.errorEvent.addEventListener((e) =>
           console.warn("[satellite] tile err:", e),
         );
+
         const satLayer = viewer.imageryLayers.addImageryProvider(satProvider);
         satLayer.alpha = 1;
         lr.satellite = satLayer;
-        console.log(
-          "[satellite] ✅ 图层已添加，总图层数:",
-          viewer.imageryLayers.length,
-        );
 
-        const zoomToHeight = {
-          10: 80000,
-          11: 40000,
-          12: 20000,
-          13: 10000,
-          14: 5000,
-          15: 2500,
-        };
-        // const flyHeight = zoomToHeight[validZoom] ?? 40000;
-        const flyHeight = 15000; // 固定高度，避免过度放大导致图像模糊
-        console.log(
-          `[satellite] flyTo lng=${lng} lat=${lat} height=${flyHeight}`,
-        );
+        // flyTo 用固定高度飞到点位，之后用户自己滚轮控制层级
         viewer.camera.flyTo({
-          destination: Cartesian3.fromDegrees(lng, lat, flyHeight),
+          destination: Cartesian3.fromDegrees(lng, lat, 15000),
           duration: 1.5,
         });
       };
