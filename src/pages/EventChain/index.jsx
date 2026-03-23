@@ -352,7 +352,7 @@ export default function EventChain() {
         overflowY: 'auto',
       }}>
         <div style={{ fontSize: '10px', color: '#64748b', letterSpacing: '0.12em', marginBottom: '16px' }}>
-          信实链 · EVENT CHAINS
+          信实链
         </div>
 
         {/* 图例 */}

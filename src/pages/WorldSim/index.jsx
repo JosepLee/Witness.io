@@ -266,7 +266,7 @@ function AgentPanel({ activeAgentId, round, running, onStart, onStop, nodeCount 
     <div style={{ width: '220px', flexShrink: 0, borderRight: '1px solid #1a2d45', display: 'flex', flexDirection: 'column', background: '#040810' }}>
       {/* Round progress */}
       <div style={{ padding: '12px', borderBottom: '1px solid #1a2d45' }}>
-        <div style={{ fontSize: '9px', color: '#475569', letterSpacing: '0.12em', marginBottom: '6px' }}>模拟角色 · {SIM_AGENTS.length} AGENTS</div>
+        <div style={{ fontSize: '9px', color: '#475569', letterSpacing: '0.12em', marginBottom: '6px' }}>模拟角色</div>
         <div style={{ display: 'flex', gap: '3px' }}>
           {['种子', '轮次1', '轮次2', '轮次3'].map((lbl, i) => (
             <div key={i} style={{ flex: 1 }}>
@@ -514,7 +514,7 @@ export default function WorldSim() {
       {/* Top bar */}
       <div style={{ height: '40px', flexShrink: 0, borderBottom: '1px solid #1a2d45', display: 'flex', alignItems: 'center', padding: '0 16px', gap: '12px', background: 'rgba(4,8,16,0.96)' }}>
         <span style={{ color: '#f59e0b', fontSize: '13px' }}>◈</span>
-        <span style={{ fontSize: '11px', fontWeight: 700, color: '#e2e8f0', letterSpacing: '0.1em' }}>WORLD SIM</span>
+        <span style={{ fontSize: '11px', fontWeight: 700, color: '#e2e8f0', letterSpacing: '0.1em' }}>世界模拟</span>
         <span style={{ fontSize: '10px', color: '#1e3a5f' }}>·</span>
         <span style={{ fontSize: '10px', color: '#334155' }}>多Agent地缘博弈推演</span>
         <div style={{ fontSize: '10px', color: '#475569', padding: '2px 10px', border: '1px solid #1a2d45', borderRadius: '2px' }}>

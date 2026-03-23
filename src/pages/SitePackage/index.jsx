@@ -393,7 +393,7 @@ function LayerPanel({ layers, onLayersChange }) {
             fontWeight: 600,
           }}
         >
-          LAYER CONTROL
+          图层管理
         </span>
         <div
           style={{
@@ -412,7 +412,7 @@ function LayerPanel({ layers, onLayersChange }) {
               boxShadow: "0 0 5px #22c55e",
             }}
           />
-          <span style={{ fontSize: 8, color: "#22c55e" }}>LIVE</span>
+          <span style={{ fontSize: 8, color: "#22c55e" }}>活动中</span>
         </div>
       </div>
       <GroupHeader
@@ -644,7 +644,7 @@ function TheaterSwitcher({ currentId, onChange, theaters = [] }) {
               fontFamily: "JetBrains Mono",
             }}
           >
-            THEATER
+            专题分类
           </span>
           <span style={{ fontSize: 10, color: "#e2e8f0", fontWeight: 600 }}>
             {current.flag} {current.label}
@@ -731,7 +731,7 @@ function TheaterSwitcher({ currentId, onChange, theaters = [] }) {
                   >
                     {theater.label}
                   </div>
-                  <div
+                  {/* <div
                     style={{
                       fontSize: 8,
                       color: "#334155",
@@ -740,7 +740,7 @@ function TheaterSwitcher({ currentId, onChange, theaters = [] }) {
                     }}
                   >
                     {theater.labelEn}
-                  </div>
+                  </div> */}
                 </div>
                 <div style={{ textAlign: "right" }}>
                   <div style={{ fontSize: 8, color: "#334155" }}>
@@ -844,7 +844,7 @@ function BaseList({
             marginBottom: 8,
           }}
         >
-          SITUATION MAP · 监控点位
+          监控点位
         </div>
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {FILTERS.map(([k, l]) => (
@@ -2284,16 +2284,16 @@ export default function SitePackage() {
               <div>
                 <div
                   style={{
-                    fontSize: 8,
+                    fontSize: 10,
                     color: "#0ea5e9",
                     letterSpacing: "0.12em",
                   }}
                 >
-                  ACTIVE THEATER
+                  当前专题
                 </div>
-                <div style={{ fontSize: 9, color: "#e2e8f0", fontWeight: 600 }}>
+                {/* <div style={{ fontSize: 9, color: "#e2e8f0", fontWeight: 600 }}>
                   {theater.labelEn}
-                </div>
+                </div> */}
               </div>
             </div>
             <div
